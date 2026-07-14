@@ -83,11 +83,15 @@ const FAR = { lat: 48.8620, lng: 2.3600, accuracy: 8 };    // ~800 m
   assert(gs && gs.reveals === undefined, 'Caché ne reçoit pas de reveals');
   assert(hs && hs.zone && hs.zone.radius <= 300, 'Zone présente côté chasseur');
 
-  // 8. Radar (chasseur, une seule fois)
+  // 8. Radar (chasseur, 3 utilisations par partie)
   const radar1 = await emit(host, 'useRadar', {});
-  assert(radar1.ok, 'Radar 1re utilisation → ok');
+  assert(radar1.ok, 'Radar utilisation 1/3 → ok');
   const radar2 = await emit(host, 'useRadar', {});
-  assert(!radar2.ok, 'Radar 2e utilisation → refusé');
+  assert(radar2.ok, 'Radar utilisation 2/3 → ok');
+  const radar3 = await emit(host, 'useRadar', {});
+  assert(radar3.ok, 'Radar utilisation 3/3 → ok');
+  const radar4 = await emit(host, 'useRadar', {});
+  assert(!radar4.ok, 'Radar 4e utilisation → refusé (quota épuisé)');
 
   // 9. Élimination par scan QR
   const scan = await emit(host, 'scanQR', { token: guestToken });

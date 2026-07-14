@@ -236,6 +236,20 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .za-count { font-family: var(--disp); font-size: 96px; font-weight: 700; color: #fff; text-shadow: 0 0 24px var(--danger); line-height: 1; margin: 10px 0; }
 .za-note { color: #ffb3bc; font-size: 12px; letter-spacing: 3px; }
 
+/* Alerte "repéré au radar" (flash bref) */
+.spot-alert { position: fixed; inset: 0; z-index: 82; display: grid; place-items: center; text-align: center;
+  background: rgba(255, 176, 0, 0.14); animation: amberflash .5s steps(2) 5; }
+@keyframes amberflash { 0%,100% { background: rgba(255,176,0,.22);} 50% { background: rgba(60,40,0,.35);} }
+.sa-title { font-family: var(--disp); font-weight: 700; font-size: 44px; letter-spacing: 6px; color: var(--amber); text-shadow: 0 0 18px var(--amber); }
+.sa-sub { color: var(--white); letter-spacing: 2px; margin-top: 8px; font-size: 15px; }
+.sa-note { color: var(--amber); letter-spacing: 2px; font-size: 12px; margin-top: 14px; }
+
+/* Bannière : chasseur visible (contre-révélation 30 s) */
+.spot-banner { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); z-index: 21;
+  background: rgba(5,9,12,.92); border: 1px solid var(--amber); color: var(--amber); box-shadow: var(--glow-amber);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 2px; padding: 6px 14px; white-space: nowrap; }
+.spot-banner span { color: var(--white); }
+
 /* ============================== FIN ============================== */
 .end-wrap { max-width: 640px; margin: 0 auto; padding: 6vh 18px 60px; display: grid; gap: 18px; }
 .end-banner { font-family: var(--disp); font-weight: 700; font-size: 34px; letter-spacing: 4px; text-align: center; padding: 18px; border: 1px solid var(--line); }
@@ -282,6 +296,8 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .mk-team.hunter .mk-dot { background: var(--amber); }
 .mk-signal .mk-dot { background: #8895a0; border-style: dashed; opacity: .8; }
 .mk-reveal .mk-dot { background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: pulse 1s infinite; }
+.mk-hunter .mk-dot { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 12px var(--amber); animation: pulse 1s infinite; }
+.mk-hunter .mk-label { color: var(--amber); }
 .mk-label { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   font-size: 10px; color: var(--ink); background: rgba(5,9,12,.7); padding: 1px 5px; letter-spacing: 1px; }
 .mk-accuracy { border-radius: 50%; background: rgba(77,255,161,0.08); border: 1px solid rgba(77,255,161,0.25); }

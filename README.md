@@ -71,8 +71,10 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
      pointillé) avec minuteur. Un caché hors-zone déclenche une **alerte plein
      écran** (son + vibration + compte à rebours) ; s'il ne revient pas → conversion.
      Les chasseurs reçoivent un **flash** avec sa position exacte.
-   - **Radar** : chaque chasseur peut révéler un caché au hasard, puis le radar se
-     recharge (**cooldown de 3 min**, décompte affiché sur le bouton).
+   - **Radar** : chaque chasseur dispose de **3 radars par partie**. Le radar révèle
+     le caché **le plus proche** (position visible **1 min** côté chasseurs). Le caché
+     repéré est **alerté** (son + vibration + interface) et **voit la position du
+     chasseur pendant 30 s** — un contre-jeu pour savoir d'où fuir.
    - **Confort** : boussole vers le centre (cachés), Wake Lock, chat d'équipe (4
      messages pré-écrits, visibles par l'équipe seulement), badge de précision GPS.
 4. **Reconnexion** — refresh ou coupure réseau : le joueur reprend sa place exacte

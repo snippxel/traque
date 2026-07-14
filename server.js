@@ -242,9 +242,18 @@ io.on('connection', (socket) => {
     if (!ctx) return ack(cb, { ok: false, error: 'Hors partie.' });
     const res = ctx.room.useRadar(ctx.playerId);
     if (!res.ok) return ack(cb, { ok: false, error: res.error });
-    ack(cb, { ok: true });
-    // Le résultat exact est poussé au chasseur qui a déclenché
+    ack(cb, { ok: true, usesLeft: res.hunter.radarUsesLeft });
+    // Le résultat exact est poussé au chasseur qui a déclenché (visible 1 min)
     socket.emit('radar:result', { name: res.reveal.name, lat: res.reveal.lat, lng: res.reveal.lng, until: res.reveal.until });
+    // La cible est alertée (son + vibration + interface) et voit le chasseur 30 s
+    const target = res.target;
+    if (target.connected && target.socketId) {
+      io.to(target.socketId).emit('radar:spotted', {
+        by: res.hunter.name,
+        hunter: res.hunter.pos ? { name: res.hunter.name, lat: res.hunter.pos.lat, lng: res.hunter.pos.lng } : null,
+        until: res.counterUntil,
+      });
+    }
     emitStateToRoom(ctx.room);
   });
 

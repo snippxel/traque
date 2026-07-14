@@ -17,8 +17,9 @@ const MOVE_MAX_M = 150; // au-delà (saut GPS), on ignore pour la distance cumul
 const ZONE_TOLERANCE_MAX_M = 50; // marge d'incertitude GPS avant conversion hors-zone
 const RECONNECT_GRACE_MS = 90 * 1000; // fenêtre de reconnexion
 const FLASH_MS = 6000; // durée d'un flash de sortie de zone chez les chasseurs
-const RADAR_MS = 8000; // durée d'un marqueur radar
-const RADAR_COOLDOWN_MS = 3 * 60 * 1000; // recharge du radar (3 min)
+const RADAR_USES = 3; // nombre de radars par partie et par chasseur
+const RADAR_REVEAL_MS = 60 * 1000; // la position révélée reste visible 1 min (chasseurs)
+const COUNTER_REVEAL_MS = 30 * 1000; // le caché repéré voit le chasseur 30 s
 const HUNTER_RATIO = 0.25; // ~25% de chasseurs en répartition aléatoire
 
 const CHAT_MESSAGES = ['À l’aide \u{1F198}', 'Je suis coincé', 'RAS', 'Par ici \u{1F449}'];
@@ -88,6 +89,7 @@ class Room {
     this.shrinkSchedule = []; // [{atTime, radius}]
     this.lastReveal = new Map(); // hiderId -> {lat,lng,time}
     this.tempReveals = []; // révélations exactes temporaires {playerId,name,lat,lng,until,kind}
+    this.counterReveals = []; // {hiderId, hunterId, until} : le caché repéré voit le chasseur
     this.nextRevealAt = null;
     this.result = null; // {winner, stats} une fois terminé
   }
@@ -109,7 +111,7 @@ class Room {
       distance: 0,
       capturedAt: null,
       outOfZoneSince: null,
-      radarReadyAt: 0, // timestamp avant lequel le radar est en recharge
+      radarUsesLeft: RADAR_USES, // radars restants pour ce chasseur
       lastPosForDistance: null,
     };
     this.players.set(id, player);
@@ -280,6 +282,8 @@ class Room {
     target.capturedAt = Date.now();
     target.outOfZoneSince = null;
     this.lastReveal.delete(target.id);
+    // Le joueur devient chasseur : ses contre-révélations en tant que caché n'ont plus de sens
+    this.counterReveals = this.counterReveals.filter((r) => r.hiderId !== target.id);
     return reason;
   }
 
@@ -288,30 +292,42 @@ class Room {
     const hunter = this.players.get(hunterId);
     if (!hunter || hunter.role !== 'hunter') return { ok: false, error: 'Action réservée aux chasseurs.' };
     if (this.status !== 'playing') return { ok: false, error: 'La partie n’est pas en cours.' };
-    const now = Date.now();
-    if (hunter.radarReadyAt && now < hunter.radarReadyAt) {
-      const left = Math.ceil((hunter.radarReadyAt - now) / 1000);
-      return { ok: false, error: 'Radar en recharge (' + left + 's).' };
-    }
+    if (hunter.radarUsesLeft <= 0) return { ok: false, error: 'Plus de radar disponible.' };
 
     const candidates = [...this.players.values()].filter(
       (p) => p.role === 'hider' && p.pos && p.connected
     );
-    // On ne démarre PAS la recharge si le radar n'a rien trouvé : pas de pénalité.
+    // On ne consomme PAS d'utilisation si le radar n'a rien trouvé : pas de pénalité.
     if (candidates.length === 0) return { ok: false, error: 'Aucun caché localisable pour le moment.' };
 
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
-    hunter.radarReadyAt = now + RADAR_COOLDOWN_MS;
+    // Cible = le caché le plus proche du chasseur (repli aléatoire si pas de position hôte)
+    let target;
+    if (hunter.pos) {
+      let bestD = Infinity;
+      for (const p of candidates) {
+        const d = haversine(hunter.pos, p.pos);
+        if (d < bestD) { bestD = d; target = p; }
+      }
+    } else {
+      target = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+
+    const now = Date.now();
+    hunter.radarUsesLeft -= 1;
+    // Révélation exacte visible par les chasseurs pendant 1 min
     const reveal = {
       playerId: target.id,
       name: target.name,
       lat: target.pos.lat,
       lng: target.pos.lng,
-      until: Date.now() + RADAR_MS,
+      until: now + RADAR_REVEAL_MS,
       kind: 'radar',
     };
     this.tempReveals.push(reveal);
-    return { ok: true, reveal };
+    // Contre-révélation : la cible voit le chasseur qui l'a repérée pendant 30 s
+    const counterUntil = now + COUNTER_REVEAL_MS;
+    this.counterReveals.push({ hiderId: target.id, hunterId: hunter.id, until: counterUntil });
+    return { ok: true, reveal, target, hunter, counterUntil };
   }
 
   addTempReveal(player, kind, ms) {
@@ -330,6 +346,7 @@ class Room {
 
   pruneTempReveals(now = Date.now()) {
     this.tempReveals = this.tempReveals.filter((r) => r.until > now);
+    this.counterReveals = this.counterReveals.filter((r) => r.until > now);
   }
 
   // --- Comptages -----------------------------------------------------------
@@ -403,8 +420,8 @@ class Room {
         name: me.name,
         role: me.role,
         qrToken: me.qrToken,
-        radarReadyAt: me.radarReadyAt || 0,
-        radarCooldownMs: RADAR_COOLDOWN_MS,
+        radarUsesLeft: me.radarUsesLeft,
+        radarMax: RADAR_USES,
         pos: me.pos,
       },
       counts: this.counts(),
@@ -468,8 +485,18 @@ class Room {
       base.reveals = this.tempReveals
         .filter((r) => r.until > now)
         .map((r) => ({ name: r.name, lat: r.lat, lng: r.lng, until: r.until, kind: r.kind }));
+    } else {
+      // Un caché ne voit AUCUN chasseur — SAUF s'il vient d'être repéré au radar :
+      // il voit alors le(s) chasseur(s) qui l'ont repéré, en direct, pendant 30 s.
+      const spotted = [];
+      for (const cr of this.counterReveals) {
+        if (cr.hiderId === me.id && cr.until > now) {
+          const h = this.players.get(cr.hunterId);
+          if (h && h.pos) spotted.push({ name: h.name, lat: h.pos.lat, lng: h.pos.lng, until: cr.until });
+        }
+      }
+      if (spotted.length) base.spotted = spotted;
     }
-    // Un caché ne reçoit AUCUNE information sur les chasseurs : rien à ajouter.
 
     return base;
   }
@@ -508,8 +535,9 @@ module.exports = {
   CHAT_MESSAGES,
   RECONNECT_GRACE_MS,
   FLASH_MS,
-  RADAR_MS,
-  RADAR_COOLDOWN_MS,
+  RADAR_USES,
+  RADAR_REVEAL_MS,
+  COUNTER_REVEAL_MS,
   ACCURACY_MAX_M,
   ZONE_TOLERANCE_MAX_M,
   MOVE_MIN_M,

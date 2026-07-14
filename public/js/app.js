@@ -22,6 +22,7 @@
     sentAt: 0,
     inGame: false,
     alertDeadline: null,
+    spottedUntil: 0,     // fin de la fenêtre "chasseur visible" (repéré au radar)
     manualRoles: {},     // cache local pour l'attribution manuelle
     roleMode: 'random',
   };
@@ -102,6 +103,15 @@
     GameMap.pulse(lat, lng, name, 8000);
     Sensors.ping(1600);
     toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
+  });
+
+  // Le caché a été repéré au radar : alerte + son + vibration, et il voit le chasseur 30 s
+  socket.on('radar:spotted', ({ by, hunter, until }) => {
+    state.spottedUntil = until;
+    showSpotAlert(by);
+    Sensors.ping(1500); Sensors.ping(1100);
+    Sensors.vibrate([250, 120, 250, 120, 400]);
+    if (hunter) GameMap.setSpotted([{ name: hunter.name, lat: hunter.lat, lng: hunter.lng, until }]);
   });
 
   socket.on('chat', ({ from, text, role }) => {
@@ -226,12 +236,18 @@
     // Coéquipiers
     GameMap.setTeammates(s.teammates || [], role);
 
-    // Chasseur : signaux + révélations
+    // Chasseur : signaux + révélations. Caché : chasseur(s) si repéré au radar.
     if (role === 'hunter') {
       GameMap.setSignals(s.signals || []);
       GameMap.setReveals(s.reveals || []);
+      GameMap.setSpotted([]);
     } else {
       GameMap.clearSignals();
+      GameMap.setSpotted(s.spotted || []);
+      // Synchronise la fin de fenêtre "chasseur visible" depuis l'état serveur
+      if (s.spotted && s.spotted.length) {
+        state.spottedUntil = Math.max(state.spottedUntil || 0, s.spotted[0].until);
+      }
     }
 
     // Boutons d'action selon rôle
@@ -249,21 +265,16 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); }, 250);
   }
-  // Bouton radar : disponible, ou en recharge avec compte à rebours (cooldown 3 min)
+  // Bouton radar : nombre d'utilisations restantes (3 par partie)
   function updateRadarButton() {
     const s = state.last;
     const btn = $('btn-radar');
     if (!s || !s.you || s.you.role !== 'hunter') return;
-    const left = (s.you.radarReadyAt || 0) - Date.now();
-    if (left > 0) {
-      btn.disabled = true;
-      btn.textContent = 'RADAR ' + fmt(left);
-    } else {
-      btn.disabled = false;
-      btn.textContent = 'RADAR';
-    }
+    const left = s.you.radarUsesLeft != null ? s.you.radarUsesLeft : 0;
+    btn.disabled = left <= 0;
+    btn.textContent = left > 0 ? 'RADAR ×' + left : 'RADAR ✕';
   }
   function updateTimers() {
     const s = state.last;
@@ -295,6 +306,25 @@
     const left = Math.max(0, Math.ceil((state.alertDeadline - Date.now()) / 1000));
     $('za-countdown').textContent = left;
   }
+  // Alerte "repéré au radar" : flash bref (2.5 s) puis on laisse la carte + bannière
+  function showSpotAlert(by) {
+    $('sa-sub').textContent = by ? by.toUpperCase() + ' T’A LOCALISÉ AU RADAR' : 'UN CHASSEUR T’A LOCALISÉ AU RADAR';
+    const el = $('spot-alert');
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 2500);
+  }
+  // Bannière décomptée pendant que la position du chasseur reste visible (30 s)
+  function updateSpotBanner() {
+    const banner = $('spot-banner');
+    const left = (state.spottedUntil || 0) - Date.now();
+    if (left > 0) {
+      banner.classList.remove('hidden');
+      $('spot-timer').textContent = fmt(left);
+    } else {
+      banner.classList.add('hidden');
+      if (state.spottedUntil) { state.spottedUntil = 0; GameMap.setSpotted([]); }
+    }
+  }
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
@@ -314,6 +344,9 @@
     Sensors.stopAlarm();
     Sensors.releaseWakeLock();
     clearZoneAlert();
+    state.spottedUntil = 0;
+    $('spot-alert').classList.add('hidden');
+    $('spot-banner').classList.add('hidden');
   }
 
   // ---------------------------------------------------------------- FIN

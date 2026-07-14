@@ -91,6 +91,17 @@ window.GameMap = (function () {
     }
   }
 
+  // Chasseur(s) visibles par un caché repéré au radar (contre-révélation 30 s)
+  let spottedMarkers = [];
+  function setSpotted(list) {
+    spottedMarkers.forEach((m) => map.removeLayer(m));
+    spottedMarkers = [];
+    for (const h of list || []) {
+      const m = L.marker([h.lat, h.lng], { icon: divIcon('mk-hunter', 'CHASSEUR ' + (h.name || '')), zIndexOffset: 950 }).addTo(map);
+      spottedMarkers.push(m);
+    }
+  }
+
   // Ajoute un marqueur pulsant ponctuel (utilisé pour le flash instantané)
   function pulse(lat, lng, name, ms) {
     const m = L.marker([lat, lng], { icon: divIcon('mk-reveal', name), zIndexOffset: 950 }).addTo(map);
@@ -134,6 +145,7 @@ window.GameMap = (function () {
     for (const m of markers.values()) map.removeLayer(m);
     markers.clear();
     revealMarkers.forEach((m) => map.removeLayer(m)); revealMarkers = [];
+    spottedMarkers.forEach((m) => map.removeLayer(m)); spottedMarkers = [];
     hasCentered = false;
   }
 
@@ -141,6 +153,6 @@ window.GameMap = (function () {
 
   return {
     init, setSelf, recenter, setTeammates, setSignals, clearSignals,
-    setReveals, pulse, setZone, bearing, reset, invalidate,
+    setReveals, setSpotted, pulse, setZone, bearing, reset, invalidate,
   };
 })();
