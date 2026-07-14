@@ -163,7 +163,7 @@
       <button id="btn-code" class="act hidden">MON CODE</button>
       <button id="btn-scan" class="act hidden">ÉLIMINER</button>
       <button id="btn-radar" class="act hidden">RADAR</button>
-      <button id="btn-chat" class="act">ÉQUIPE</button>
+      <button id="btn-chat" class="act">CHAT</button>
     </div>
 
     <!-- Alerte hors-zone plein écran -->
@@ -233,10 +233,14 @@
   </div>
 
   <div id="modal-chat" class="modal hidden">
-    <div class="modal-card bracket">
-      <div class="modal-title">MESSAGE D’ÉQUIPE</div>
-      <div class="modal-sub">Visible uniquement par ton équipe.</div>
-      <div id="chat-buttons" class="chat-buttons"></div>
+    <div class="modal-card bracket chat-card">
+      <div class="modal-title">CHAT GLOBAL</div>
+      <div class="modal-sub">Visible par tous les opérateurs de la partie.</div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <form id="chat-form" class="chat-form" autocomplete="off">
+        <input id="chat-input" type="text" maxlength="200" placeholder="Écris un message…" />
+        <button type="submit" class="btn btn-sm">[ ENVOYER ]</button>
+      </form>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
     </div>
   </div>

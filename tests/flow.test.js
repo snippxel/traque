@@ -5,6 +5,7 @@ const URL = 'http://localhost:3000';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 function connect() { return io(URL, { transports: ['websocket'] }); }
+const ready = (s) => new Promise((r) => { if (s.connected) return r(); s.once('connect', r); });
 function emit(sock, ev, data) {
   return new Promise((res) => sock.emit(ev, data, (r) => res(r)));
 }
@@ -26,8 +27,8 @@ const FAR = { lat: 48.8620, lng: 2.3600, accuracy: 8 };    // ~800 m
   const hiderStates = [];
   const hunterStates = [];
 
-  await new Promise((r) => host.on('connect', r));
-  await new Promise((r) => guest.on('connect', r));
+  await ready(host);
+  await ready(guest);
   console.log('Sockets connectés.');
 
   // 1. Création

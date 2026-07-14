@@ -11,6 +11,7 @@ const { io } = require('socket.io-client');
 const URL = 'http://localhost:3000';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const connect = () => io(URL, { transports: ['websocket'] });
+const ready = (s) => new Promise((r) => { if (s.connected) return r(); s.once('connect', r); });
 const emit = (s, ev, d) => new Promise((res) => s.emit(ev, d, (r) => res(r)));
 let failures = 0;
 const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) failures++; };
@@ -23,9 +24,9 @@ const FAR_HIDER = { lat: 48.8620, lng: 2.3600, accuracy: 10 };   // ~800 m
   const host = connect();   // chasseur
   const near = connect();   // caché proche (PC imprécis)
   const far = connect();    // caché loin
-  await new Promise((r) => host.on('connect', r));
-  await new Promise((r) => near.on('connect', r));
-  await new Promise((r) => far.on('connect', r));
+  await ready(host);
+  await ready(near);
+  await ready(far);
 
   const created = await emit(host, 'createRoom', { name: 'HUNTER' });
   const jNear = await emit(near, 'joinRoom', { code: created.code, name: 'PROCHE' });
@@ -83,6 +84,13 @@ const FAR_HIDER = { lat: 48.8620, lng: 2.3600, accuracy: 10 };   // ~800 m
   const proche = hunterState.reveals.filter((x) => x.name === 'PROCHE');
   assert(proche.length === 1, 'Chasseur : une seule révélation pour PROCHE (pas de doublon)');
   assert(nearSpottedLen === 1, 'Caché repéré : un seul marqueur chasseur (pas de doublon)');
+
+  // Révélation EN DIRECT : le caché bouge → la position vue par le chasseur suit
+  const before = hunterState.reveals.find((x) => x.name === 'PROCHE');
+  near.emit('pos', { lat: NEAR_HIDER.lat + 0.0015, lng: NEAR_HIDER.lng + 0.0015, accuracy: 12 });
+  await wait(1800);
+  const after = hunterState.reveals.find((x) => x.name === 'PROCHE');
+  assert(after && (after.lat !== before.lat || after.lng !== before.lng), 'Révélation en direct : la position du caché se met à jour quand il bouge');
 
   console.log('\n' + (failures === 0 ? 'TOUS LES TESTS PASSENT ✓' : failures + ' ÉCHEC(S) ✗'));
   host.close(); near.close(); far.close();

@@ -22,7 +22,7 @@ const RADAR_REVEAL_MS = 60 * 1000; // la position révélée reste visible 1 min
 const COUNTER_REVEAL_MS = 30 * 1000; // le caché repéré voit le chasseur 30 s
 const HUNTER_RATIO = 0.25; // ~25% de chasseurs en répartition aléatoire
 
-const CHAT_MESSAGES = ['À l’aide \u{1F198}', 'Je suis coincé', 'RAS', 'Par ici \u{1F449}'];
+const CHAT_MAX_LEN = 200; // longueur max d'un message de chat global
 
 // Réglages par défaut d'une partie
 function defaultConfig() {
@@ -493,7 +493,15 @@ class Room {
         }
       }
       base.signals = signals;
-      base.reveals = activeReveals.map((r) => ({ name: r.name, lat: r.lat, lng: r.lng, until: r.until, kind: r.kind }));
+      // Révélations en DIRECT : on suit la position live du caché (repli sur le
+      // snapshot du moment de la révélation s'il n'a plus de position récente).
+      base.reveals = activeReveals
+        .map((r) => ({ r, p: this.players.get(r.playerId) }))
+        .filter(({ p }) => p && p.role === 'hider')
+        .map(({ r, p }) => {
+          const pos = p.pos || { lat: r.lat, lng: r.lng };
+          return { name: r.name, lat: pos.lat, lng: pos.lng, until: r.until, kind: r.kind };
+        });
     } else {
       // Un caché ne voit AUCUN chasseur — SAUF s'il vient d'être repéré au radar :
       // il voit alors le(s) chasseur(s) qui l'ont repéré, en direct, pendant 30 s.
@@ -541,7 +549,7 @@ class GameManager {
 module.exports = {
   GameManager,
   Room,
-  CHAT_MESSAGES,
+  CHAT_MAX_LEN,
   RECONNECT_GRACE_MS,
   FLASH_MS,
   RADAR_USES,

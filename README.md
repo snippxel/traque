@@ -75,8 +75,8 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
      le caché **le plus proche** (position visible **1 min** côté chasseurs). Le caché
      repéré est **alerté** (son + vibration + interface) et **voit la position du
      chasseur pendant 30 s** — un contre-jeu pour savoir d'où fuir.
-   - **Confort** : boussole vers le centre (cachés), Wake Lock, chat d'équipe (4
-     messages pré-écrits, visibles par l'équipe seulement), badge de précision GPS.
+   - **Confort** : boussole vers le centre (cachés), Wake Lock, **chat global**
+     (texte libre, visible par tous), badge de précision GPS.
 4. **Reconnexion** — refresh ou coupure réseau : le joueur reprend sa place exacte
    (fenêtre de grâce serveur de 90 s).
 5. **Fin** — victoire chasseurs (tous attrapés) ou cachés (temps écoulé). Tableau de

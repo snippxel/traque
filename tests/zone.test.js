@@ -5,6 +5,7 @@ const URL = 'http://localhost:3000';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const connect = () => io(URL, { transports: ['websocket'] });
 const emit = (s, ev, d) => new Promise((res) => s.emit(ev, d, (r) => res(r)));
+const ready = (s) => new Promise((r) => { if (s.connected) return r(); s.once('connect', r); });
 let failures = 0;
 const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) failures++; };
 
@@ -15,8 +16,8 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
 (async () => {
   const host = connect();   // chasseur
   const guest = connect();  // caché
-  await new Promise((r) => host.on('connect', r));
-  await new Promise((r) => guest.on('connect', r));
+  await ready(host);
+  await ready(guest);
 
   const created = await emit(host, 'createRoom', { name: 'CHASSEUR' });
   const joined = await emit(guest, 'joinRoom', { code: created.code, name: 'FUYARD' });

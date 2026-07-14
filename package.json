@@ -12,7 +12,9 @@
     "dev": "node server.js",
     "test:flow": "node tests/flow.test.js",
     "test:zone": "node tests/zone.test.js",
-    "test": "npm run test:flow && npm run test:zone"
+    "test:radar": "node tests/radar.test.js",
+    "test:chat": "node tests/chat.test.js",
+    "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

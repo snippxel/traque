@@ -105,24 +105,41 @@
     toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
   });
 
-  // Le caché a été repéré au radar : alerte + son + vibration, et il voit le chasseur 30 s
+  // Le caché a été repéré au radar : alerte marquée (son + vibration répétés,
+  // flash prolongé), et il voit le chasseur en direct pendant 30 s.
   socket.on('radar:spotted', ({ by, hunter, until }) => {
     state.spottedUntil = until;
     showSpotAlert(by);
-    Sensors.ping(1500); Sensors.ping(1100);
-    Sensors.vibrate([250, 120, 250, 120, 400]);
+    Sensors.vibrate([300, 150, 300, 150, 300, 150, 600]);
+    let beeps = 0;
+    const bz = setInterval(() => { Sensors.ping(1500); Sensors.ping(1050); if (++beeps >= 6) clearInterval(bz); }, 450);
     if (hunter) GameMap.setSpotted([{ name: hunter.name, lat: hunter.lat, lng: hunter.lng, until }]);
   });
 
-  socket.on('chat', ({ from, text, role }) => {
+  // Chat global (texte libre) : reçu par tous
+  socket.on('chat', ({ from, text }) => {
+    addChatMessage(from, text);
     const log = $('chat-log');
     const b = document.createElement('div');
-    b.className = 'chat-bubble' + (role === 'hunter' ? ' hunter' : '');
+    b.className = 'chat-bubble';
     b.innerHTML = '<b>' + escapeHtml(from) + '</b> ' + escapeHtml(text);
     log.appendChild(b);
     Sensors.ping(900);
     setTimeout(() => { b.style.opacity = '0'; b.style.transition = 'opacity .4s'; setTimeout(() => b.remove(), 420); }, 6000);
   });
+
+  // Historique du chat dans la modale (persiste le temps de la session)
+  function addChatMessage(from, text) {
+    const box = $('chat-messages');
+    if (!box) return;
+    const empty = box.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const line = document.createElement('div');
+    line.className = 'chat-msg';
+    line.innerHTML = '<span class="cm-from">' + escapeHtml(from) + '</span>' + escapeHtml(text);
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
 
   function escapeHtml(s) { return (s || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 
@@ -306,12 +323,15 @@
     const left = Math.max(0, Math.ceil((state.alertDeadline - Date.now()) / 1000));
     $('za-countdown').textContent = left;
   }
-  // Alerte "repéré au radar" : flash bref (2.5 s) puis on laisse la carte + bannière
+  // Alerte "repéré au radar" : flash prolongé (6 s) pour être bien remarqué,
+  // puis on laisse la carte + la bannière décomptée (chasseur visible 30 s).
+  let spotAlertTimer = null;
   function showSpotAlert(by) {
     $('sa-sub').textContent = by ? by.toUpperCase() + ' T’A LOCALISÉ AU RADAR' : 'UN CHASSEUR T’A LOCALISÉ AU RADAR';
     const el = $('spot-alert');
     el.classList.remove('hidden');
-    setTimeout(() => el.classList.add('hidden'), 2500);
+    if (spotAlertTimer) clearTimeout(spotAlertTimer);
+    spotAlertTimer = setTimeout(() => el.classList.add('hidden'), 6000);
   }
   // Bannière décomptée pendant que la position du chasseur reste visible (30 s)
   function updateSpotBanner() {
@@ -347,6 +367,8 @@
     state.spottedUntil = 0;
     $('spot-alert').classList.add('hidden');
     $('spot-banner').classList.add('hidden');
+    $('modal-chat').classList.add('hidden');
+    $('chat-messages').innerHTML = '';
   }
 
   // ---------------------------------------------------------------- FIN
@@ -499,16 +521,24 @@
       if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'amber'); updateRadarButton(); }
     });
   };
-  $('btn-chat').onclick = () => $('modal-chat').classList.remove('hidden');
+  $('btn-chat').onclick = () => {
+    $('modal-chat').classList.remove('hidden');
+    const box = $('chat-messages');
+    if (box && !box.children.length) {
+      box.innerHTML = '<div class="chat-empty">Aucun message. Écris le premier.</div>';
+    }
+    setTimeout(() => $('chat-input').focus(), 50);
+  };
 
-  // Chat prédéfini
-  const CHAT_LABELS = ['À l’aide 🆘', 'Je suis coincé', 'RAS', 'Par ici 👉'];
-  const chatBtns = $('chat-buttons');
-  CHAT_LABELS.forEach((label, i) => {
-    const b = document.createElement('button');
-    b.className = 'btn'; b.textContent = label;
-    b.onclick = () => { socket.emit('chat', { index: i }); $('modal-chat').classList.add('hidden'); };
-    chatBtns.appendChild(b);
+  // Chat global : envoi de texte libre
+  $('chat-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('chat-input');
+    const text = (input.value || '').trim();
+    if (!text) return;
+    socket.emit('chat', { text });
+    input.value = '';
+    input.focus();
   });
 
   // --- Scan modal ---

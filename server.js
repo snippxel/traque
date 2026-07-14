@@ -12,7 +12,7 @@ const express = require('express');
 const { Server } = require('socket.io');
 const {
   GameManager,
-  CHAT_MESSAGES,
+  CHAT_MAX_LEN,
   RECONNECT_GRACE_MS,
   FLASH_MS,
   ZONE_TOLERANCE_MAX_M,
@@ -257,19 +257,17 @@ io.on('connection', (socket) => {
     emitStateToRoom(ctx.room);
   });
 
-  // --- Chat rapide d'équipe ---
-  socket.on('chat', ({ index } = {}) => {
+  // --- Chat global (texte libre) ---
+  socket.on('chat', ({ text } = {}) => {
     const ctx = ctxOf(socket);
     if (!ctx) return;
-    const i = Number(index);
-    if (!Number.isInteger(i) || i < 0 || i >= CHAT_MESSAGES.length) return;
     const { room, player } = ctx;
-    const payload = { from: player.name, index: i, text: CHAT_MESSAGES[i], role: player.role, at: Date.now() };
-    // Uniquement aux membres de la même équipe (rôle)
+    const msg = (typeof text === 'string' ? text : '').trim().slice(0, CHAT_MAX_LEN);
+    if (!msg) return;
+    const payload = { from: player.name, text: msg, at: Date.now() };
+    // Chat GLOBAL : diffusé à tous les joueurs connectés de la salle
     for (const p of room.players.values()) {
-      if (p.role === player.role && p.connected && p.socketId) {
-        io.to(p.socketId).emit('chat', payload);
-      }
+      if (p.connected && p.socketId) io.to(p.socketId).emit('chat', payload);
     }
   });
 
