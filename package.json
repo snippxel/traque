@@ -1,0 +1,25 @@
+{
+  "name": "traque",
+  "version": "1.0.0",
+  "description": "Traque — cache-cache géolocalisé IRL (PWA). Backend Node/Express/Socket.io, état de jeu en mémoire.",
+  "type": "commonjs",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test:flow": "node tests/flow.test.js",
+    "test:zone": "node tests/zone.test.js",
+    "test": "npm run test:flow && npm run test:zone"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  },
+  "license": "MIT"
+}
