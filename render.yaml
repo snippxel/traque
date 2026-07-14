@@ -1,0 +1,16 @@
+# Déploiement Render.com (tier gratuit) — https://render.com
+# Render lit ce fichier automatiquement (Blueprint) OU tu peux configurer
+# le service à la main : Build = "npm install", Start = "node server.js".
+services:
+  - type: web
+    name: traque
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
