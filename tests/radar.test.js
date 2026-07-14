@@ -33,9 +33,9 @@ const FAR_HIDER = { lat: 48.8620, lng: 2.3600, accuracy: 10 };   // ~800 m
 
   let hunterState = null;
   host.on('state', (s) => { if (s.status === 'playing' && s.you.role === 'hunter') hunterState = s; });
-  let nearSpottedEvt = null, nearSeesHunter = false, farSpottedEvt = null;
+  let nearSpottedEvt = null, nearSeesHunter = false, farSpottedEvt = null, nearSpottedLen = 0;
   near.on('radar:spotted', (d) => { nearSpottedEvt = d; });
-  near.on('state', (s) => { if (s.spotted && s.spotted.length) nearSeesHunter = true; });
+  near.on('state', (s) => { if (s.spotted) { nearSpottedLen = s.spotted.length; if (s.spotted.length) nearSeesHunter = true; } });
   far.on('radar:spotted', (d) => { farSpottedEvt = d; });
 
   host.emit('assignRoles', { mode: 'manual', assignments: {
@@ -77,6 +77,12 @@ const FAR_HIDER = { lat: 48.8620, lng: 2.3600, accuracy: 10 };   // ~800 m
   assert(r2.ok && r3.ok, 'Radar 2/3 et 3/3 → ok');
   const r4 = await emit(host, 'useRadar', {});
   assert(!r4.ok && /plus de radar/i.test(r4.error || ''), 'Radar 4e → refusé (quota épuisé)');
+
+  // Anti-doublon : après plusieurs radars sur le MÊME caché, une seule position
+  await wait(1700);
+  const proche = hunterState.reveals.filter((x) => x.name === 'PROCHE');
+  assert(proche.length === 1, 'Chasseur : une seule révélation pour PROCHE (pas de doublon)');
+  assert(nearSpottedLen === 1, 'Caché repéré : un seul marqueur chasseur (pas de doublon)');
 
   console.log('\n' + (failures === 0 ? 'TOUS LES TESTS PASSENT ✓' : failures + ' ÉCHEC(S) ✗'));
   host.close(); near.close(); far.close();

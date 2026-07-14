@@ -92,15 +92,15 @@
     Sensors.vibrate([600]);
   });
 
-  socket.on('hunter:flash', ({ name, lat, lng }) => {
-    GameMap.pulse(lat, lng, name, 6000);
+  socket.on('hunter:flash', ({ name }) => {
+    // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
     Sensors.ping(1400);
     Sensors.vibrate(120);
     toast('SORTIE DE ZONE : ' + name, 'amber', 4000);
   });
 
-  socket.on('radar:result', ({ name, lat, lng }) => {
-    GameMap.pulse(lat, lng, name, 8000);
+  socket.on('radar:result', ({ name }) => {
+    // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
     Sensors.ping(1600);
     toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
   });

@@ -314,7 +314,9 @@ class Room {
 
     const now = Date.now();
     hunter.radarUsesLeft -= 1;
-    // Révélation exacte visible par les chasseurs pendant 1 min
+    // Révélation exacte visible par les chasseurs pendant 1 min.
+    // On dédoublonne : une seule révélation par cible (remplace l'ancienne).
+    this.tempReveals = this.tempReveals.filter((r) => r.playerId !== target.id);
     const reveal = {
       playerId: target.id,
       name: target.name,
@@ -324,14 +326,18 @@ class Room {
       kind: 'radar',
     };
     this.tempReveals.push(reveal);
-    // Contre-révélation : la cible voit le chasseur qui l'a repérée pendant 30 s
+    // Contre-révélation : la cible voit le chasseur qui l'a repérée pendant 30 s.
+    // Une seule entrée par paire (caché, chasseur) : on prolonge au lieu de dupliquer.
     const counterUntil = now + COUNTER_REVEAL_MS;
+    this.counterReveals = this.counterReveals.filter((r) => !(r.hiderId === target.id && r.hunterId === hunter.id));
     this.counterReveals.push({ hiderId: target.id, hunterId: hunter.id, until: counterUntil });
     return { ok: true, reveal, target, hunter, counterUntil };
   }
 
   addTempReveal(player, kind, ms) {
     if (!player.pos) return null;
+    // Une seule révélation exacte par joueur à la fois (pas de doublon).
+    this.tempReveals = this.tempReveals.filter((r) => r.playerId !== player.id);
     const reveal = {
       playerId: player.id,
       name: player.name,
@@ -472,19 +478,22 @@ class Room {
     base.teammates = teammates;
 
     if (me.role === 'hunter') {
-      // Signaux gris : dernières positions révélées des cachés encore en course
+      // Révélations exactes en cours (radar + sorties de zone)
+      const activeReveals = this.tempReveals.filter((r) => r.until > now);
+      const revealedIds = new Set(activeReveals.map((r) => r.playerId));
+      // Signaux gris : dernières positions révélées des cachés encore en course.
+      // On masque le signal d'un caché dont la position EXACTE est déjà affichée
+      // (sinon il apparaît deux fois : un point gris + un point rouge).
       const signals = [];
       for (const [hiderId, rev] of this.lastReveal) {
+        if (revealedIds.has(hiderId)) continue;
         const h = this.players.get(hiderId);
         if (h && h.role === 'hider') {
           signals.push({ id: hiderId, name: h.name, lat: rev.lat, lng: rev.lng, time: rev.time });
         }
       }
       base.signals = signals;
-      // Révélations exactes temporaires (radar + sorties de zone)
-      base.reveals = this.tempReveals
-        .filter((r) => r.until > now)
-        .map((r) => ({ name: r.name, lat: r.lat, lng: r.lng, until: r.until, kind: r.kind }));
+      base.reveals = activeReveals.map((r) => ({ name: r.name, lat: r.lat, lng: r.lng, until: r.until, kind: r.kind }));
     } else {
       // Un caché ne voit AUCUN chasseur — SAUF s'il vient d'être repéré au radar :
       // il voit alors le(s) chasseur(s) qui l'ont repéré, en direct, pendant 30 s.
