@@ -40,7 +40,13 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   await wait(250);
   assert(guestMsgs.some((m) => m.text === 'je te vois pas 😏' && m.from === 'CHASSEUR'), 'Message du chasseur reçu par le caché (global)');
 
+  // Anti-spam : un message envoyé < 600 ms après le précédent est ignoré
+  host.emit('chat', { text: 'spam immédiat' });
+  await wait(250);
+  assert(!hostMsgs.some((m) => m.text === 'spam immédiat'), 'Message spammé (< 600 ms) ignoré');
+
   // Message vide ignoré, message trop long tronqué à 200
+  await wait(700); // laisse passer le rate-limit
   const longText = 'a'.repeat(500);
   host.emit('chat', { text: '   ' });
   host.emit('chat', { text: longText });

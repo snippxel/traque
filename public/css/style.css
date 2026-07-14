@@ -207,9 +207,12 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .reveal-timer .rt-k { font-size: 8px; letter-spacing: 1.5px; color: var(--ink-dim); }
 .reveal-timer .rt-v { font-family: var(--disp); font-size: 17px; font-weight: 700; color: #8895a0; letter-spacing: 1px; line-height: 1.1; }
 .reveal-timer.soon .rt-v { color: var(--phos); text-shadow: var(--glow); }
+/* Côté caché : sous la boussole, et l'imminence est une ALERTE (sa position va fuiter) */
+.reveal-timer.hider { top: 184px; }
+.reveal-timer.hider.soon .rt-v { color: var(--amber); text-shadow: var(--glow-amber); }
 
-/* Alerte fermeture de zone (cachés hors prochaine zone) */
-.zone-closing { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); z-index: 21;
+/* Alerte fermeture de zone (cachés hors prochaine zone) — sous la bannière "chasseur visible" */
+.zone-closing { position: absolute; top: 152px; left: 50%; transform: translateX(-50%); z-index: 21;
   background: rgba(40,0,4,.9); border: 1px solid var(--danger); color: #fff; box-shadow: 0 0 12px var(--danger);
   font-family: var(--mono); font-size: 11px; letter-spacing: 1.5px; padding: 6px 14px; white-space: nowrap;
   animation: redflash .7s steps(2) infinite; }
@@ -233,6 +236,16 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 #btn-radar { color: var(--amber); }
 #btn-radar:disabled { color: var(--ink-dim); opacity: .5; cursor: not-allowed; }
 #btn-code { color: var(--phos); }
+
+/* Bouton recentrage carte */
+.recenter { position: absolute; right: 10px; bottom: 74px; z-index: 20; width: 44px; height: 44px;
+  background: rgba(5,9,12,.88); border: 1px solid var(--line); color: var(--phos);
+  font-size: 22px; line-height: 1; cursor: pointer; }
+.recenter:active { transform: translateY(1px); background: rgba(77,255,161,.1); }
+
+/* Déplacements de marqueurs lissés (désactivé pendant les animations de zoom) */
+.leaflet-marker-icon { transition: transform .9s linear; }
+.leaflet-zoom-anim .leaflet-marker-icon { transition: none; }
 
 /* Chat log flottant */
 .chat-log { position: absolute; left: 10px; bottom: 74px; z-index: 19; display: grid; gap: 5px; max-width: 70%; pointer-events: none; }

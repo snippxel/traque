@@ -472,6 +472,9 @@ class Room {
     base.zone.nextShrinkAt = next ? next.atTime : null;
     base.timeLeft = this.config.lastSurvivor ? null : Math.max(0, this.endTime - now);
     base.startTime = this.startTime;
+    // Prochaine révélation périodique : utile aux chasseurs (compte à rebours)
+    // ET aux cachés (savoir quand leur position sera capturée)
+    base.nextRevealAt = this.nextRevealAt;
 
     // Coéquipiers en temps réel (même rôle que moi)
     const teammates = [];
@@ -499,7 +502,6 @@ class Room {
         }
       }
       base.signals = signals;
-      base.nextRevealAt = this.nextRevealAt; // pour le compte à rebours "prochaine révélation"
       // Révélations en DIRECT : on suit la position live du caché (repli sur le
       // snapshot du moment de la révélation s'il n'a plus de position récente).
       base.reveals = activeReveals

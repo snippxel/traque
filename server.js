@@ -76,12 +76,8 @@ setInterval(() => {
     if (room.status === 'playing') {
       tickGame(room, now);
     }
-    if (room.status !== 'lobby' || removed) {
-      emitStateToRoom(room);
-    } else {
-      // en lobby, on pousse aussi l'état régulièrement (roster, positions hôte)
-      emitStateToRoom(room);
-    }
+    // Diffusion groupée : un seul envoi d'état par tick, quel que soit le statut
+    emitStateToRoom(room);
   }
 }, TICK_MS);
 
@@ -278,7 +274,11 @@ io.on('connection', (socket) => {
     const { room, player } = ctx;
     const msg = (typeof text === 'string' ? text : '').trim().slice(0, CHAT_MAX_LEN);
     if (!msg) return;
-    const payload = { from: player.name, text: msg, at: Date.now() };
+    // Anti-spam : 1 message max toutes les 600 ms par joueur
+    const now = Date.now();
+    if (now - (player.lastChatAt || 0) < 600) return;
+    player.lastChatAt = now;
+    const payload = { from: player.name, text: msg, at: now };
     // Chat GLOBAL : diffusé à tous les joueurs connectés de la salle
     for (const p of room.players.values()) {
       if (p.connected && p.socketId) io.to(p.socketId).emit('chat', payload);

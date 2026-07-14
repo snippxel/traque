@@ -54,19 +54,27 @@
   }
 
   // ================================================================ CONNEXION
+  // À CHAQUE (re)connexion : on reprend la session si on en a une. Indispensable
+  // après une coupure réseau en pleine partie — le serveur indexe par socket, et
+  // un socket reconnecté a un nouvel id : sans resume, tous les envois seraient
+  // ignorés jusqu'au refresh.
   socket.on('connect', () => {
-    const s = loadSession();
-    if (s && s.code && s.playerId && !state.joined) {
-      socket.emit('resume', { code: s.code, playerId: s.playerId }, (res) => {
-        if (res && res.ok) {
-          state.code = res.code; state.playerId = res.playerId; state.name = s.name || '';
-          state.joined = true;
-          startGeo();
-        } else {
-          clearSession();
-        }
-      });
-    }
+    const sess = state.code && state.playerId
+      ? { code: state.code, playerId: state.playerId, name: state.name }
+      : loadSession();
+    if (!sess || !sess.code || !sess.playerId) return;
+    socket.emit('resume', { code: sess.code, playerId: sess.playerId }, (res) => {
+      if (res && res.ok) {
+        state.code = res.code; state.playerId = res.playerId;
+        state.name = state.name || sess.name || '';
+        const firstJoin = !state.joined;
+        state.joined = true;
+        if (firstJoin) startGeo();
+        else toast('Reconnecté.', '', 2000);
+      } else if (!state.joined) {
+        clearSession();
+      }
+    });
   });
 
   socket.on('disconnect', () => { if (state.inGame) toast('Connexion perdue — reconnexion…', 'amber'); });
@@ -96,6 +104,10 @@
 
   socket.on('converted', ({ reason, by }) => {
     clearZoneAlert();
+    // Le QR d'identité et les alertes "caché" n'ont plus de sens : on nettoie
+    $('modal-qr').classList.add('hidden');
+    $('zone-closing').classList.add('hidden');
+    state.zoneClosingAt = 0;
     if (reason === 'scan') toast('Capturé par ' + (by || 'un chasseur') + ' — tu passes chasseur.', 'danger', 4000);
     else toast('Hors zone trop longtemps — tu passes chasseur.', 'danger', 4000);
     Sensors.vibrate([600]);
@@ -194,6 +206,9 @@
   }
 
   function fillConfig(cfg) {
+    // Une saisie locale est en cours ou vient d'être envoyée : ne PAS écraser les
+    // champs avec l'état serveur (qui peut encore contenir l'ancienne config).
+    if (configDirty) return;
     const map = {
       'cfg-startRadius': cfg.startRadius, 'cfg-finalRadius': cfg.finalRadius,
       'cfg-durationMin': cfg.durationMin, 'cfg-shrinkSteps': cfg.shrinkSteps,
@@ -265,7 +280,12 @@
 
     // Chasseur : signaux + révélations. Caché : chasseur(s) si repéré au radar.
     if (role === 'hunter') {
-      GameMap.setSignals(s.signals || []);
+      // Le signal gris affiche son âge : "KARL · 3min" = position vieille de 3 min
+      const now = Date.now();
+      GameMap.setSignals((s.signals || []).map((sig) => ({
+        ...sig,
+        name: sig.name + ' · ' + Math.max(0, Math.round((now - sig.time) / 60000)) + 'min',
+      })));
       GameMap.setReveals(s.reveals || []);
       GameMap.setSpotted([]);
     } else {
@@ -283,7 +303,11 @@
     $('btn-radar').classList.toggle('hidden', role !== 'hunter');
     updateRadarButton();
     $('compass').classList.toggle('hidden', role !== 'hider');
-    $('reveal-timer').classList.toggle('hidden', role !== 'hunter');
+    // Timer de révélation : visible pour tous, libellé et position selon le rôle
+    const rt = $('reveal-timer');
+    rt.classList.remove('hidden');
+    rt.classList.toggle('hider', role === 'hider');
+    $('rt-label').textContent = role === 'hunter' ? 'RÉVÉLATION' : 'TON SIGNAL';
     if (role === 'hunter') stopCompass();
 
     updateTimers();
@@ -321,16 +345,13 @@
       const d = Math.max(0, s.zone.nextShrinkAt - Date.now());
       $('shrink-timer').textContent = fmt(d);
     }
-    // Prochaine révélation périodique (chasseurs) — basé sur l'intervalle configuré
-    if (state.role === 'hunter') {
-      const rt = $('reveal-timer');
-      if (s.nextRevealAt) {
-        const left = Math.max(0, s.nextRevealAt - Date.now());
-        $('rt-value').textContent = fmt(left);
-        rt.classList.toggle('soon', left < 15000);
-      } else {
-        $('rt-value').textContent = '--:--';
-      }
+    // Prochaine révélation périodique (les deux rôles) — intervalle configuré
+    if (s.nextRevealAt) {
+      const left = Math.max(0, s.nextRevealAt - Date.now());
+      $('rt-value').textContent = fmt(left);
+      $('reveal-timer').classList.toggle('soon', left < 15000);
+    } else {
+      $('rt-value').textContent = '--:--';
     }
     // Boussole (cachés)
     if (state.role === 'hider' && s.zone && s.zone.center && state.selfPos) {
@@ -466,10 +487,17 @@
   let compassOn = false;
   async function startCompass() {
     if (compassOn) return;
-    compassOn = true;
-    await Sensors.startCompass(() => {});
+    // iOS 13+ : la permission peut être refusée hors geste utilisateur.
+    // On ne verrouille compassOn que si l'activation a réellement réussi,
+    // pour pouvoir retenter au prochain toucher.
+    const ok = await Sensors.startCompass(() => {});
+    compassOn = ok !== false;
   }
   function stopCompass() { if (compassOn) { Sensors.stopCompass(); compassOn = false; } }
+  // Nouvelle tentative boussole au toucher (contexte de geste requis par iOS)
+  document.addEventListener('pointerdown', () => {
+    if (state.inGame && state.role === 'hider' && !compassOn) startCompass();
+  });
 
   // ================================================================ UI HANDLERS
   // --- Accueil ---
@@ -501,6 +529,8 @@
   // --- Lobby : config ---
   const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-lastSurvivor'];
   let cfgTimer = null;
+  let configDirty = false; // vrai entre une saisie locale et sa prise en compte serveur
+  let configDirtyTimer = null;
   function readConfig() {
     return {
       startRadius: +$('cfg-startRadius').value,
@@ -514,10 +544,20 @@
     };
   }
   function pushConfig() {
+    configDirty = true;
     clearTimeout(cfgTimer);
-    cfgTimer = setTimeout(() => socket.emit('updateConfig', { config: readConfig() }), 250);
+    cfgTimer = setTimeout(() => {
+      socket.emit('updateConfig', { config: readConfig() });
+      // On laisse le temps au serveur de renvoyer un état avec la nouvelle config,
+      // puis fillConfig reprend la main (resynchronisation normale).
+      clearTimeout(configDirtyTimer);
+      configDirtyTimer = setTimeout(() => { configDirty = false; }, 2500);
+    }, 250);
   }
-  cfgIds.forEach((id) => { const el = $(id); if (el) el.addEventListener('change', pushConfig); });
+  cfgIds.forEach((id) => { const el = $(id); if (el) {
+    el.addEventListener('change', pushConfig);
+    el.addEventListener('input', () => { configDirty = true; }); // protège dès la frappe
+  } });
 
   $('btn-role-random').onclick = () => socket.emit('assignRoles', { mode: 'random' });
   $('btn-role-manual').onclick = () => {
@@ -560,9 +600,13 @@
   $('btn-radar').onclick = () => {
     const btn = $('btn-radar');
     if (btn.disabled) return;
-    btn.disabled = true; // désactivation optimiste ; l'état serveur confirme le cooldown
+    btn.disabled = true; // désactivation optimiste
     socket.emit('useRadar', {}, (res) => {
-      if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'amber'); updateRadarButton(); }
+      if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'amber'); updateRadarButton(); return; }
+      // Applique tout de suite le décompte à l'état local : sinon le ticker (250 ms)
+      // réactiverait le bouton depuis un état périmé jusqu'au prochain état serveur (1.5 s)
+      if (state.last && state.last.you && res.usesLeft != null) state.last.you.radarUsesLeft = res.usesLeft;
+      updateRadarButton();
     });
   };
   $('btn-chat').onclick = () => {
@@ -627,6 +671,16 @@
     $('input-code').value = '';
     show('screen-home');
   }
+
+  // Recentrer la carte sur soi
+  $('btn-recenter').onclick = () => { if (state.selfPos) GameMap.recenter(state.selfPos); };
+
+  // iOS/Safari : l'audio ne peut démarrer qu'après un geste utilisateur.
+  // On déverrouille le contexte au premier toucher, sinon les alertes seraient muettes.
+  document.addEventListener('pointerdown', function unlock() {
+    Sensors.ensureAudio();
+    document.removeEventListener('pointerdown', unlock);
+  }, { once: true });
 
   // Wake lock auto-réacquisition
   Sensors.initWakeLockAutoReacquire();

@@ -113,6 +113,8 @@ window.GameMap = (function () {
     const c = [zone.center.lat, zone.center.lng];
     if (!zoneCircle) {
       zoneCircle = L.circle(c, { radius: zone.radius, color: '#4dffa1', weight: 2, fill: true, fillColor: '#4dffa1', fillOpacity: 0.04 }).addTo(map);
+      // Première zone reçue : on cadre la carte dessus pour voir tout le terrain de jeu
+      try { map.fitBounds(zoneCircle.getBounds().pad(0.08)); hasCentered = true; } catch (_) {}
     } else {
       zoneCircle.setLatLng(c); zoneCircle.setRadius(zone.radius);
     }
