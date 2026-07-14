@@ -71,7 +71,8 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
      pointillé) avec minuteur. Un caché hors-zone déclenche une **alerte plein
      écran** (son + vibration + compte à rebours) ; s'il ne revient pas → conversion.
      Les chasseurs reçoivent un **flash** avec sa position exacte.
-   - **Radar** : chaque chasseur a **une** utilisation pour révéler un caché au hasard.
+   - **Radar** : chaque chasseur peut révéler un caché au hasard, puis le radar se
+     recharge (**cooldown de 3 min**, décompte affiché sur le bouton).
    - **Confort** : boussole vers le centre (cachés), Wake Lock, chat d'équipe (4
      messages pré-écrits, visibles par l'équipe seulement), badge de précision GPS.
 4. **Reconnexion** — refresh ou coupure réseau : le joueur reprend sa place exacte
@@ -121,7 +122,12 @@ npm test           # terminal 2 — lance les deux suites
 
 ## Contraintes connues (assumées, pas des bugs)
 
-- La géoloc web a une précision réelle ~5–30 m en extérieur, pire en intérieur.
+- La géoloc web a une précision réelle ~5–30 m en extérieur, pire en intérieur, et
+  souvent très mauvaise sur PC (WiFi, plusieurs centaines de mètres). Pour qu'un
+  joueur sur ordinateur ne soit pas un « fantôme » injoignable, le serveur accepte
+  les positions imprécises (le badge GPS indique la précision) ; en revanche les
+  stats de distance n'accumulent que les lectures fiables (≤ 30 m) et une marge
+  d'incertitude évite les fausses conversions hors-zone.
 - Les navigateurs mobiles ralentissent le GPS quand l'onglet passe en arrière-plan
   ou que l'écran est verrouillé (surtout iOS Safari) → garder l'app à l'écran (le
   Wake Lock aide).

@@ -15,6 +15,7 @@ const {
   CHAT_MESSAGES,
   RECONNECT_GRACE_MS,
   FLASH_MS,
+  ZONE_TOLERANCE_MAX_M,
 } = require('./game');
 
 const app = express();
@@ -99,7 +100,10 @@ function tickGame(room, now) {
   for (const p of room.players.values()) {
     if (p.role !== 'hider' || !p.pos) continue;
     const dist = room.distanceFromCenter(p.pos);
-    const outside = dist > radius;
+    // Marge d'incertitude GPS : on ne convertit pas sur du bruit. Un joueur n'est
+    // "hors zone" que s'il l'est même en tenant compte de sa précision GPS.
+    const tolerance = Math.min(p.pos.accuracy || 0, ZONE_TOLERANCE_MAX_M);
+    const outside = dist - tolerance > radius;
 
     if (outside && p.outOfZoneSince == null) {
       // Transition dedans -> dehors

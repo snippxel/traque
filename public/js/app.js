@@ -238,7 +238,7 @@
     $('btn-code').classList.toggle('hidden', role !== 'hider');
     $('btn-scan').classList.toggle('hidden', role !== 'hunter');
     $('btn-radar').classList.toggle('hidden', role !== 'hunter');
-    $('btn-radar').disabled = !!s.you.radarUsed;
+    updateRadarButton();
     $('compass').classList.toggle('hidden', role !== 'hider');
     if (role === 'hunter') stopCompass();
 
@@ -249,7 +249,21 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); }, 250);
+  }
+  // Bouton radar : disponible, ou en recharge avec compte à rebours (cooldown 3 min)
+  function updateRadarButton() {
+    const s = state.last;
+    const btn = $('btn-radar');
+    if (!s || !s.you || s.you.role !== 'hunter') return;
+    const left = (s.you.radarReadyAt || 0) - Date.now();
+    if (left > 0) {
+      btn.disabled = true;
+      btn.textContent = 'RADAR ' + fmt(left);
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'RADAR';
+    }
   }
   function updateTimers() {
     const s = state.last;
@@ -338,8 +352,8 @@
     badge.className = 'gps-badge' + (pos.accuracy > 30 ? ' bad' : pos.accuracy > 15 ? ' warn' : '');
     // Affichage local même si imprécis
     if (state.inGame && state.role) GameMap.setSelf(pos, state.role);
-    // Envoi réseau : précision <= 30m, throttle 1.5s sauf mouvement > 2m
-    if (pos.accuracy > 30) return;
+    // Envoi réseau : on envoie même une position imprécise (PC/WiFi) pour rester
+    // localisable ; le badge indique la précision. Throttle 1.5s sauf mouvement > 2m.
     const now = Date.now();
     const moved = state.sentPos ? haversine(state.sentPos, pos) : Infinity;
     const due = !state.sentPos || (now - state.sentAt) >= 1500 || (moved >= 2 && (now - state.sentAt) >= 500);
@@ -445,8 +459,11 @@
   };
   $('btn-scan').onclick = openScan;
   $('btn-radar').onclick = () => {
+    const btn = $('btn-radar');
+    if (btn.disabled) return;
+    btn.disabled = true; // désactivation optimiste ; l'état serveur confirme le cooldown
     socket.emit('useRadar', {}, (res) => {
-      if (!res || !res.ok) toast((res && res.error) || 'Radar indisponible.', 'amber');
+      if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'amber'); updateRadarButton(); }
     });
   };
   $('btn-chat').onclick = () => $('modal-chat').classList.remove('hidden');

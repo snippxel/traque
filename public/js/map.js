@@ -40,7 +40,7 @@ window.GameMap = (function () {
     const cls = 'mk-self ' + role;
     if (!selfMarker) {
       selfMarker = L.marker([pos.lat, pos.lng], { icon: divIcon(cls, 'MOI'), zIndexOffset: 1000 }).addTo(map);
-      accuracyCircle = L.circle([pos.lat, pos.lng], { radius: pos.accuracy || 15, className: 'mk-accuracy', stroke: false }).addTo(map);
+      accuracyCircle = L.circle([pos.lat, pos.lng], { radius: pos.accuracy || 15, color: '#4dffa1', weight: 1, opacity: 0.25, fillColor: '#4dffa1', fillOpacity: 0.05 }).addTo(map);
     } else {
       selfMarker.setLatLng([pos.lat, pos.lng]);
       selfMarker.setIcon(divIcon(cls, 'MOI'));

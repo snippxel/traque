@@ -10,12 +10,15 @@
 // ----------------------------------------------------------------------------
 // Constantes de réglage (assumées par le cahier des charges)
 // ----------------------------------------------------------------------------
-const ACCURACY_MAX_M = 30; // au-delà, la position n'est pas retenue côté serveur
+const ACCURACY_MAX_M = 30; // précision "fiable" (stats de distance, tolérance zone)
+const ACCURACY_HARD_MAX_M = 3000; // au-delà, lecture absurde : on rejette
 const MOVE_MIN_M = 2; // en-deçà, on ne recalcule pas la distance parcourue
 const MOVE_MAX_M = 150; // au-delà (saut GPS), on ignore pour la distance cumulée
+const ZONE_TOLERANCE_MAX_M = 50; // marge d'incertitude GPS avant conversion hors-zone
 const RECONNECT_GRACE_MS = 90 * 1000; // fenêtre de reconnexion
 const FLASH_MS = 6000; // durée d'un flash de sortie de zone chez les chasseurs
 const RADAR_MS = 8000; // durée d'un marqueur radar
+const RADAR_COOLDOWN_MS = 3 * 60 * 1000; // recharge du radar (3 min)
 const HUNTER_RATIO = 0.25; // ~25% de chasseurs en répartition aléatoire
 
 const CHAT_MESSAGES = ['À l’aide \u{1F198}', 'Je suis coincé', 'RAS', 'Par ici \u{1F449}'];
@@ -106,7 +109,7 @@ class Room {
       distance: 0,
       capturedAt: null,
       outOfZoneSince: null,
-      radarUsed: false,
+      radarReadyAt: 0, // timestamp avant lequel le radar est en recharge
       lastPosForDistance: null,
     };
     this.players.set(id, player);
@@ -237,19 +240,22 @@ class Room {
   updatePosition(playerId, pos) {
     const p = this.players.get(playerId);
     if (!p || !pos) return;
-    const acc = Number.isFinite(pos.accuracy) ? pos.accuracy : 999;
     if (!Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return;
-    // Précision insuffisante -> on n'écrit pas la position de référence côté serveur
-    if (acc > ACCURACY_MAX_M) return;
+    const acc = Number.isFinite(pos.accuracy) ? pos.accuracy : 999;
+    // On rejette seulement les lectures absurdes. Les positions imprécises
+    // (PC/WiFi) sont acceptées : sinon un joueur devient un "fantôme" que le
+    // radar et les révélations ne peuvent jamais localiser.
+    if (acc > ACCURACY_HARD_MAX_M) return;
 
     const newPos = { lat: pos.lat, lng: pos.lng, accuracy: acc, time: Date.now() };
 
-    // Distance cumulée (uniquement pendant la partie)
-    if (this.status === 'playing' && p.lastPosForDistance) {
+    // Distance cumulée : pendant la partie, et uniquement sur des lectures fiables
+    // (au-delà de 30 m, le delta est du bruit qu'on n'accumule pas).
+    if (this.status === 'playing' && p.lastPosForDistance && acc <= ACCURACY_MAX_M) {
       const d = haversine(p.lastPosForDistance, newPos);
       if (d >= MOVE_MIN_M && d <= MOVE_MAX_M) p.distance += d;
     }
-    p.lastPosForDistance = newPos;
+    if (acc <= ACCURACY_MAX_M) p.lastPosForDistance = newPos;
     p.pos = newPos;
   }
 
@@ -282,15 +288,20 @@ class Room {
     const hunter = this.players.get(hunterId);
     if (!hunter || hunter.role !== 'hunter') return { ok: false, error: 'Action réservée aux chasseurs.' };
     if (this.status !== 'playing') return { ok: false, error: 'La partie n’est pas en cours.' };
-    if (hunter.radarUsed) return { ok: false, error: 'Radar déjà utilisé.' };
+    const now = Date.now();
+    if (hunter.radarReadyAt && now < hunter.radarReadyAt) {
+      const left = Math.ceil((hunter.radarReadyAt - now) / 1000);
+      return { ok: false, error: 'Radar en recharge (' + left + 's).' };
+    }
 
     const candidates = [...this.players.values()].filter(
       (p) => p.role === 'hider' && p.pos && p.connected
     );
+    // On ne démarre PAS la recharge si le radar n'a rien trouvé : pas de pénalité.
     if (candidates.length === 0) return { ok: false, error: 'Aucun caché localisable pour le moment.' };
 
     const target = candidates[Math.floor(Math.random() * candidates.length)];
-    hunter.radarUsed = true;
+    hunter.radarReadyAt = now + RADAR_COOLDOWN_MS;
     const reveal = {
       playerId: target.id,
       name: target.name,
@@ -392,7 +403,8 @@ class Room {
         name: me.name,
         role: me.role,
         qrToken: me.qrToken,
-        radarUsed: me.radarUsed,
+        radarReadyAt: me.radarReadyAt || 0,
+        radarCooldownMs: RADAR_COOLDOWN_MS,
         pos: me.pos,
       },
       counts: this.counts(),
@@ -497,7 +509,9 @@ module.exports = {
   RECONNECT_GRACE_MS,
   FLASH_MS,
   RADAR_MS,
+  RADAR_COOLDOWN_MS,
   ACCURACY_MAX_M,
+  ZONE_TOLERANCE_MAX_M,
   MOVE_MIN_M,
   haversine,
 };
