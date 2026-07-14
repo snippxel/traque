@@ -34,7 +34,7 @@ const IN_NEXT = { lat: 48.8566 + 0.001, lng: 2.3522, accuracy: 8 };    // ~110 m
     [c.playerId]: 'hunter', [gOut.playerId]: 'hider', [gIn.playerId]: 'hider',
   } });
   // durée 1 min, 2 paliers → 1er rétrécissement à t=30 s (≤ 60 s) : alerte dès le lancement
-  host.emit('updateConfig', { config: { startRadius: 1000, finalRadius: 50, durationMin: 1, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 10, radarUses: 3, lastSurvivor: false } });
+  host.emit('updateConfig', { config: { startRadius: 1000, finalRadius: 50, durationMin: 1, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 10, radarUses: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(150);
   host.emit('pos', CENTER);
   out.emit('pos', OUT_NEXT);

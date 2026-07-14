@@ -34,6 +34,8 @@ function defaultConfig() {
     revealIntervalMin: 5, // minutes entre deux révélations
     graceSeconds: 10, // délai de grâce hors-zone
     radarUses: RADAR_USES, // nombre de radars par chasseur
+    dispersionSeconds: 60, // phase de départ : les cachés fuient (timer/zone en pause)
+    startRevealSeconds: 30, // au départ, le chasseur voit les cachés en direct N secondes
     lastSurvivor: false,
   };
 }
@@ -86,6 +88,8 @@ class Room {
     this.roleMode = 'random'; // 'random' | 'manual'
     this.center = null; // {lat,lng} fixé au lancement
     this.startTime = null;
+    this.dispersionEndsAt = null; // fin de la phase de départ (fuite des cachés)
+    this.startRevealEndsAt = null; // fin de la visibilité live des cachés au départ
     this.endTime = null;
     this.shrinkSchedule = []; // [{atTime, radius}]
     this.lastReveal = new Map(); // hiderId -> {lat,lng,time}
@@ -165,6 +169,8 @@ class Room {
     c.revealIntervalMin = clamp(num(cfg.revealIntervalMin, c.revealIntervalMin), 0.1, 60);
     c.graceSeconds = clamp(Math.round(num(cfg.graceSeconds, c.graceSeconds)), 3, 120);
     c.radarUses = clamp(Math.round(num(cfg.radarUses, c.radarUses)), 0, 20);
+    c.dispersionSeconds = clamp(Math.round(num(cfg.dispersionSeconds, c.dispersionSeconds)), 0, 600);
+    c.startRevealSeconds = clamp(Math.round(num(cfg.startRevealSeconds, c.startRevealSeconds)), 0, c.dispersionSeconds);
     c.lastSurvivor = !!cfg.lastSurvivor;
     if (c.finalRadius > c.startRadius) c.finalRadius = c.startRadius;
   }
@@ -186,21 +192,26 @@ class Room {
 
     this.center = { lat: hostPos.lat, lng: hostPos.lng };
     this.startTime = Date.now();
+    // Phase de départ : les cachés fuient. Le timer et la zone ne démarrent qu'après.
+    this.dispersionEndsAt = this.startTime + this.config.dispersionSeconds * 1000;
+    this.startRevealEndsAt = this.startTime + this.config.startRevealSeconds * 1000;
+    const huntStart = this.dispersionEndsAt;
     const durationMs = this.config.durationMin * 60 * 1000;
-    this.endTime = this.startTime + durationMs;
+    this.endTime = huntStart + durationMs;
 
-    // Paliers de rétrécissement : N événements répartis linéairement
+    // Paliers de rétrécissement : N événements répartis sur la CHASSE (après dispersion)
     const { startRadius, finalRadius, shrinkSteps } = this.config;
     this.shrinkSchedule = [];
     for (let k = 1; k <= shrinkSteps; k++) {
       const radius = startRadius + ((finalRadius - startRadius) * k) / shrinkSteps;
-      const atTime = this.startTime + (durationMs * k) / shrinkSteps;
+      const atTime = huntStart + (durationMs * k) / shrinkSteps;
       this.shrinkSchedule.push({ atTime, radius });
     }
 
-    // Révélations : première à t=0, puis toutes les X minutes
-    this.snapshotReveals();
-    this.nextRevealAt = this.startTime + this.config.revealIntervalMin * 60 * 1000;
+    // Révélations périodiques : à partir de la chasse. Pas de révélation initiale :
+    // pendant la dispersion, la visibilité est gérée par la fenêtre "live" du départ,
+    // puis tout est masqué jusqu'à cette première révélation.
+    this.nextRevealAt = huntStart + this.config.revealIntervalMin * 60 * 1000;
 
     // Fige les rôles de départ pour les stats, et attribue les radars configurés
     for (const p of this.players.values()) {
@@ -210,6 +221,11 @@ class Room {
 
     this.status = 'playing';
     return { ok: true };
+  }
+
+  // --- Phase de départ -----------------------------------------------------
+  inDispersion(now = Date.now()) {
+    return this.status === 'playing' && this.dispersionEndsAt != null && now < this.dispersionEndsAt;
   }
 
   // --- Zone ----------------------------------------------------------------
@@ -272,6 +288,7 @@ class Room {
     const hunter = this.players.get(hunterId);
     if (!hunter || hunter.role !== 'hunter') return { ok: false, error: 'Action réservée aux chasseurs.' };
     if (this.status !== 'playing') return { ok: false, error: 'La partie n’est pas en cours.' };
+    if (this.inDispersion()) return { ok: false, error: 'Attends la fin de la dispersion.' };
     const target = [...this.players.values()].find((p) => p.qrToken === token);
     if (!target) return { ok: false, error: 'QR code invalide.' };
     if (target.id === hunterId) return { ok: false, error: 'Tu ne peux pas te scanner toi-même.' };
@@ -298,6 +315,7 @@ class Room {
     const hunter = this.players.get(hunterId);
     if (!hunter || hunter.role !== 'hunter') return { ok: false, error: 'Action réservée aux chasseurs.' };
     if (this.status !== 'playing') return { ok: false, error: 'La partie n’est pas en cours.' };
+    if (this.inDispersion()) return { ok: false, error: 'Attends la fin de la dispersion.' };
     if (hunter.radarUsesLeft <= 0) return { ok: false, error: 'Plus de radar disponible.' };
 
     const candidates = [...this.players.values()].filter(
@@ -470,11 +488,16 @@ class Room {
     const next = this.nextShrink(now);
     base.zone.nextRadius = next ? next.radius : this.currentRadius(now);
     base.zone.nextShrinkAt = next ? next.atTime : null;
-    base.timeLeft = this.config.lastSurvivor ? null : Math.max(0, this.endTime - now);
+    // Le timer de chasse ne court qu'à partir de la fin de la dispersion (gelé avant)
+    base.timeLeft = this.config.lastSurvivor ? null : Math.max(0, this.endTime - Math.max(now, this.dispersionEndsAt));
     base.startTime = this.startTime;
+    base.dispersionEndsAt = this.dispersionEndsAt;
+    base.startRevealEndsAt = this.startRevealEndsAt;
     // Prochaine révélation périodique : utile aux chasseurs (compte à rebours)
     // ET aux cachés (savoir quand leur position sera capturée)
     base.nextRevealAt = this.nextRevealAt;
+
+    const startLive = now < this.startRevealEndsAt; // fenêtre de visibilité live au départ
 
     // Coéquipiers en temps réel (même rôle que moi)
     const teammates = [];
@@ -487,30 +510,37 @@ class Room {
     base.teammates = teammates;
 
     if (me.role === 'hunter') {
-      // Révélations exactes en cours (radar + sorties de zone)
-      const activeReveals = this.tempReveals.filter((r) => r.until > now);
-      const revealedIds = new Set(activeReveals.map((r) => r.playerId));
-      // Signaux gris : dernières positions révélées des cachés encore en course.
-      // On masque le signal d'un caché dont la position EXACTE est déjà affichée
-      // (sinon il apparaît deux fois : un point gris + un point rouge).
-      const signals = [];
-      for (const [hiderId, rev] of this.lastReveal) {
-        if (revealedIds.has(hiderId)) continue;
-        const h = this.players.get(hiderId);
-        if (h && h.role === 'hider') {
-          signals.push({ id: hiderId, name: h.name, lat: rev.lat, lng: rev.lng, time: rev.time });
+      if (startLive) {
+        // DÉPART : le chasseur voit TOUS les cachés en direct pendant N secondes,
+        // puis tout est masqué jusqu'à la première révélation périodique.
+        base.signals = [];
+        base.reveals = [...this.players.values()]
+          .filter((p) => p.role === 'hider' && p.pos)
+          .map((p) => ({ name: p.name, lat: p.pos.lat, lng: p.pos.lng, until: this.startRevealEndsAt, kind: 'start' }));
+      } else {
+        // Révélations exactes en cours (radar + sorties de zone)
+        const activeReveals = this.tempReveals.filter((r) => r.until > now);
+        const revealedIds = new Set(activeReveals.map((r) => r.playerId));
+        // Signaux gris : dernières positions révélées des cachés encore en course.
+        // On masque le signal d'un caché dont la position EXACTE est déjà affichée.
+        const signals = [];
+        for (const [hiderId, rev] of this.lastReveal) {
+          if (revealedIds.has(hiderId)) continue;
+          const h = this.players.get(hiderId);
+          if (h && h.role === 'hider') {
+            signals.push({ id: hiderId, name: h.name, lat: rev.lat, lng: rev.lng, time: rev.time });
+          }
         }
+        base.signals = signals;
+        // Révélations en DIRECT : on suit la position live du caché (repli snapshot).
+        base.reveals = activeReveals
+          .map((r) => ({ r, p: this.players.get(r.playerId) }))
+          .filter(({ p }) => p && p.role === 'hider')
+          .map(({ r, p }) => {
+            const pos = p.pos || { lat: r.lat, lng: r.lng };
+            return { name: r.name, lat: pos.lat, lng: pos.lng, until: r.until, kind: r.kind };
+          });
       }
-      base.signals = signals;
-      // Révélations en DIRECT : on suit la position live du caché (repli sur le
-      // snapshot du moment de la révélation s'il n'a plus de position récente).
-      base.reveals = activeReveals
-        .map((r) => ({ r, p: this.players.get(r.playerId) }))
-        .filter(({ p }) => p && p.role === 'hider')
-        .map(({ r, p }) => {
-          const pos = p.pos || { lat: r.lat, lng: r.lng };
-          return { name: r.name, lat: pos.lat, lng: pos.lng, until: r.until, kind: r.kind };
-        });
     } else {
       // Un caché ne voit AUCUN chasseur — SAUF s'il vient d'être repéré au radar :
       // il voit alors le(s) chasseur(s) qui l'ont repéré, en direct, pendant 30 s.

@@ -214,6 +214,7 @@
       'cfg-durationMin': cfg.durationMin, 'cfg-shrinkSteps': cfg.shrinkSteps,
       'cfg-revealIntervalMin': cfg.revealIntervalMin, 'cfg-graceSeconds': cfg.graceSeconds,
       'cfg-radarUses': cfg.radarUses,
+      'cfg-dispersionSeconds': cfg.dispersionSeconds, 'cfg-startRevealSeconds': cfg.startRevealSeconds,
     };
     for (const [id, v] of Object.entries(map)) {
       const el = $(id);
@@ -297,18 +298,34 @@
       }
     }
 
+    // Phase de départ (dispersion) : timer/zone gelés, chasseur bloqué
+    const dispersion = s.dispersionEndsAt && Date.now() < s.dispersionEndsAt;
+
     // Boutons d'action selon rôle
     $('btn-code').classList.toggle('hidden', role !== 'hider');
     $('btn-scan').classList.toggle('hidden', role !== 'hunter');
     $('btn-radar').classList.toggle('hidden', role !== 'hunter');
     updateRadarButton();
+    if (dispersion && role === 'hunter') {
+      // Le chasseur attend : actions verrouillées jusqu'à la fin de la dispersion
+      $('btn-scan').classList.add('locked');
+      $('btn-radar').classList.add('locked'); $('btn-radar').disabled = true;
+    } else {
+      $('btn-scan').classList.remove('locked');
+      $('btn-radar').classList.remove('locked');
+    }
     $('compass').classList.toggle('hidden', role !== 'hider');
-    // Timer de révélation : visible pour tous, libellé et position selon le rôle
+    // Timer de révélation : caché seulement en phase de chasse (masqué au départ)
     const rt = $('reveal-timer');
-    rt.classList.remove('hidden');
+    rt.classList.toggle('hidden', dispersion);
     rt.classList.toggle('hider', role === 'hider');
     $('rt-label').textContent = role === 'hunter' ? 'RÉVÉLATION' : 'TON SIGNAL';
+    // Bandeau rétrécissement masqué pendant la dispersion (la zone ne bouge pas encore)
+    if (dispersion) $('hud-shrink').classList.add('hidden');
     if (role === 'hunter') stopCompass();
+
+    // Interface de départ
+    updateStartBanner();
 
     updateTimers();
   }
@@ -317,13 +334,17 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); updateStartBanner(); }, 250);
   }
   // Bouton radar : nombre d'utilisations restantes (3 par partie)
   function updateRadarButton() {
     const s = state.last;
     const btn = $('btn-radar');
     if (!s || !s.you || s.you.role !== 'hunter') return;
+    // Pendant la dispersion, le radar est verrouillé (le chasseur attend)
+    if (s.dispersionEndsAt && Date.now() < s.dispersionEndsAt) {
+      btn.disabled = true; btn.textContent = 'RADAR ⏸'; return;
+    }
     const left = s.you.radarUsesLeft != null ? s.you.radarUsesLeft : 0;
     btn.disabled = left <= 0;
     btn.textContent = left > 0 ? 'RADAR ×' + left : 'RADAR ✕';
@@ -331,12 +352,16 @@
   function updateTimers() {
     const s = state.last;
     if (!s || s.status !== 'playing') return;
-    // Temps restant
+    const now = Date.now();
+    // Temps : pendant la dispersion, le HUD montre le compte à rebours de départ
     const tk = $('hud-timer-k'), tv = $('hud-timer');
-    if (s.config && s.config.lastSurvivor) {
+    if (s.dispersionEndsAt && now < s.dispersionEndsAt) {
+      tk.textContent = 'DÉPART'; tv.textContent = fmt(s.dispersionEndsAt - now);
+      tv.classList.remove('danger');
+    } else if (s.config && s.config.lastSurvivor) {
       tk.textContent = 'MODE'; tv.textContent = 'SURVIE'; tv.classList.remove('danger');
     } else if (s.timeLeft != null) {
-      const left = Math.max(0, s.timeLeft - (Date.now() - state.lastAt));
+      const left = Math.max(0, s.timeLeft - (now - state.lastAt));
       tk.textContent = 'TEMPS'; tv.textContent = fmt(left);
       tv.classList.toggle('danger', left < 60000);
     }
@@ -376,6 +401,32 @@
     if (spotAlertTimer) clearTimeout(spotAlertTimer);
     spotAlertTimer = setTimeout(() => el.classList.add('hidden'), 6000);
   }
+  // Interface de départ (phase de dispersion) — recalculée à chaque tick
+  function updateStartBanner() {
+    const s = state.last;
+    const banner = $('start-banner');
+    const now = Date.now();
+    if (!s || s.status !== 'playing' || !s.dispersionEndsAt || now >= s.dispersionEndsAt) {
+      banner.classList.add('hidden');
+      return;
+    }
+    banner.classList.remove('hidden');
+    const hunter = state.role === 'hunter';
+    banner.classList.toggle('hunter', hunter);
+    $('sb-title').textContent = hunter ? 'ATTENDEZ' : 'FUYEZ !';
+    $('sb-sub').textContent = hunter ? 'La chasse démarre bientôt' : 'Éloignez-vous et cachez-vous';
+    $('sb-timer').textContent = fmt(s.dispersionEndsAt - now);
+    const note = $('sb-note');
+    const liveLeft = (s.startRevealEndsAt || 0) - now;
+    if (liveLeft > 0) {
+      if (hunter) { note.textContent = 'Tu vois les cachés en direct : ' + fmt(liveLeft); note.className = 'sb-note live'; }
+      else { note.textContent = '⚠ Le chasseur te voit encore ' + fmt(liveLeft); note.className = 'sb-note live'; }
+    } else {
+      if (hunter) { note.textContent = 'Cachés masqués — patiente'; note.className = 'sb-note safe'; }
+      else { note.textContent = 'Tu es masqué ✓'; note.className = 'sb-note safe'; }
+    }
+  }
+
   // Bannière décomptée avant la fermeture de la zone (cachés hors prochaine zone)
   function updateZoneClosing() {
     const banner = $('zone-closing');
@@ -426,6 +477,9 @@
     $('spot-banner').classList.add('hidden');
     $('zone-closing').classList.add('hidden');
     $('reveal-timer').classList.add('hidden');
+    $('start-banner').classList.add('hidden');
+    $('btn-scan').classList.remove('locked');
+    $('btn-radar').classList.remove('locked');
     $('modal-chat').classList.add('hidden');
     $('chat-messages').innerHTML = '';
   }
@@ -527,7 +581,7 @@
   $('input-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
 
   // --- Lobby : config ---
-  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-lastSurvivor'];
+  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-dispersionSeconds', 'cfg-startRevealSeconds', 'cfg-lastSurvivor'];
   let cfgTimer = null;
   let configDirty = false; // vrai entre une saisie locale et sa prise en compte serveur
   let configDirtyTimer = null;
@@ -540,6 +594,8 @@
       revealIntervalMin: +$('cfg-revealIntervalMin').value,
       graceSeconds: +$('cfg-graceSeconds').value,
       radarUses: +$('cfg-radarUses').value,
+      dispersionSeconds: +$('cfg-dispersionSeconds').value,
+      startRevealSeconds: +$('cfg-startRevealSeconds').value,
       lastSurvivor: $('cfg-lastSurvivor').checked,
     };
   }
@@ -596,7 +652,14 @@
     $('modal-qr').classList.remove('hidden');
     QR.render($('qr-canvas'), state.last.you.qrToken);
   };
-  $('btn-scan').onclick = openScan;
+  $('btn-scan').onclick = () => {
+    const s = state.last;
+    if (s && s.dispersionEndsAt && Date.now() < s.dispersionEndsAt) {
+      toast('Attends la fin de la dispersion pour éliminer.', 'amber');
+      return;
+    }
+    openScan();
+  };
   $('btn-radar').onclick = () => {
     const btn = $('btn-radar');
     if (btn.disabled) return;

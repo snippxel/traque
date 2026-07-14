@@ -90,6 +90,10 @@ function tickGame(room, now) {
     room.nextRevealAt = now + room.config.revealIntervalMin * 60 * 1000;
   }
 
+  // Phase de départ : ni rétrécissement, ni conversion hors-zone, ni alerte de zone.
+  // Les cachés fuient tranquillement, seule la visibilité live du chasseur est active.
+  if (room.inDispersion(now)) return;
+
   const radius = room.currentRadius(now);
 
   // Alerte "la zone va se fermer" : ~1 min avant chaque rétrécissement, une seule

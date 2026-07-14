@@ -55,7 +55,7 @@ const FAR = { lat: 48.8620, lng: 2.3600, accuracy: 8 };    // ~800 m
   await wait(200);
 
   // 4. Config courte
-  host.emit('updateConfig', { config: { startRadius: 300, finalRadius: 50, durationMin: 1, shrinkSteps: 2, revealIntervalMin: 1, graceSeconds: 4, lastSurvivor: false } });
+  host.emit('updateConfig', { config: { startRadius: 300, finalRadius: 50, durationMin: 1, shrinkSteps: 2, revealIntervalMin: 1, graceSeconds: 4, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(200);
 
   // 5. Positions (host = centre, guest proche donc dans la zone)

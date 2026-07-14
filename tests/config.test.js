@@ -23,7 +23,7 @@ async function scenarioRadars() {
   const c = await emit(host, 'createRoom', { name: 'H' });
   const g = await emit(guest, 'joinRoom', { code: c.code, name: 'G' });
   host.emit('assignRoles', { mode: 'manual', assignments: { [c.playerId]: 'hunter', [g.playerId]: 'hider' } });
-  host.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 100, durationMin: 20, shrinkSteps: 3, revealIntervalMin: 5, graceSeconds: 10, radarUses: 1, lastSurvivor: false } });
+  host.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 100, durationMin: 20, shrinkSteps: 3, revealIntervalMin: 5, graceSeconds: 10, radarUses: 1, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(150);
   host.emit('pos', CENTER); guest.emit('pos', HIDER_START);
   await wait(250);
@@ -47,7 +47,8 @@ async function scenarioReveal() {
   const c = await emit(host, 'createRoom', { name: 'H2' });
   const g = await emit(guest, 'joinRoom', { code: c.code, name: 'CIBLE' });
   host.emit('assignRoles', { mode: 'manual', assignments: { [c.playerId]: 'hunter', [g.playerId]: 'hider' } });
-  host.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 200, durationMin: 20, shrinkSteps: 2, revealIntervalMin: 0.1, graceSeconds: 10, radarUses: 3, lastSurvivor: false } });
+  // dispersionSeconds: 0 → phase de chasse immédiate, révélations dès l'intervalle
+  host.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 200, durationMin: 20, shrinkSteps: 2, revealIntervalMin: 0.1, graceSeconds: 10, radarUses: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(150);
   host.emit('pos', CENTER); guest.emit('pos', HIDER_START);
   await wait(300);
@@ -56,11 +57,12 @@ async function scenarioReveal() {
   host.on('state', (s) => { if (s.status === 'playing') hostState = s; });
   const start = await emit(host, 'startGame', { safetyChecked: true });
   assert(start.ok, 'Partie lancée');
-  await wait(1700);
+  // Première révélation à l'intervalle (~6 s), pas à t=0
+  await wait(7000);
   const sig1 = hostState && hostState.signals && hostState.signals.find((x) => x.name === 'CIBLE');
-  assert(sig1, 'Signal gris initial présent (révélation à t=0)');
+  assert(sig1, 'Signal gris présent après le 1er intervalle de révélation');
 
-  // Le caché se déplace ; après un intervalle (6 s), le signal doit suivre
+  // Le caché se déplace ; après un nouvel intervalle, le signal doit suivre
   guest.emit('pos', HIDER_MOVED);
   await wait(7000);
   const sig2 = hostState.signals.find((x) => x.name === 'CIBLE');

@@ -88,6 +88,8 @@
           <label class="cfg"><span>Révélation (min)</span><input id="cfg-revealIntervalMin" type="number" min="0.1" max="60" step="0.5" /></label>
           <label class="cfg"><span>Grâce hors-zone (s)</span><input id="cfg-graceSeconds" type="number" min="3" max="120" step="1" /></label>
           <label class="cfg"><span>Radars / chasseur</span><input id="cfg-radarUses" type="number" min="0" max="20" step="1" /></label>
+          <label class="cfg"><span>Dispersion (s)</span><input id="cfg-dispersionSeconds" type="number" min="0" max="600" step="5" /></label>
+          <label class="cfg"><span>Visibilité départ (s)</span><input id="cfg-startRevealSeconds" type="number" min="0" max="600" step="5" /></label>
         </div>
         <label class="check-line">
           <input id="cfg-lastSurvivor" type="checkbox" />
@@ -144,6 +146,14 @@
 
     <!-- Sous-bandeau : prochain rétrécissement -->
     <div id="hud-shrink" class="hud-shrink">PROCHAIN RÉTRÉCISSEMENT DANS <span id="shrink-timer">--:--</span></div>
+
+    <!-- Interface de départ (phase de dispersion) — non bloquante, la carte reste visible -->
+    <div id="start-banner" class="start-banner hidden">
+      <div id="sb-title" class="sb-title">FUYEZ !</div>
+      <div id="sb-sub" class="sb-sub">Cachez-vous vite</div>
+      <div id="sb-timer" class="sb-timer">00:60</div>
+      <div id="sb-note" class="sb-note"></div>
+    </div>
 
     <!-- Badge GPS -->
     <div id="gps-badge" class="gps-badge">GPS <span id="gps-acc">--</span></div>

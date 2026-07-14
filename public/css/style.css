@@ -201,6 +201,19 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .gps-badge.warn { color: var(--amber); border-color: var(--amber-dim); }
 .gps-badge.bad { color: var(--danger); border-color: var(--danger-dim); }
 
+/* Interface de départ (phase de dispersion) — bandeau non bloquant en haut */
+.start-banner { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); z-index: 22;
+  width: min(90%, 420px); text-align: center; background: rgba(5,9,12,.9); border: 1px solid var(--phos);
+  box-shadow: var(--glow); padding: 12px 14px; backdrop-filter: blur(2px); }
+.start-banner.hunter { border-color: var(--amber); box-shadow: var(--glow-amber); }
+.sb-title { font-family: var(--disp); font-weight: 700; font-size: 30px; letter-spacing: 5px; color: var(--phos); text-shadow: var(--glow); line-height: 1; }
+.start-banner.hunter .sb-title { color: var(--amber); text-shadow: var(--glow-amber); }
+.sb-sub { font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); margin-top: 4px; text-transform: uppercase; }
+.sb-timer { font-family: var(--disp); font-weight: 700; font-size: 34px; letter-spacing: 2px; color: var(--white); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.sb-note { font-size: 10px; letter-spacing: 1.5px; margin-top: 4px; min-height: 12px; }
+.sb-note.live { color: var(--danger); }
+.sb-note.safe { color: var(--phos-dim); }
+
 /* Timer prochaine révélation (chasseurs) */
 .reveal-timer { position: absolute; top: 92px; left: 10px; z-index: 20; background: rgba(5,9,12,.82);
   border: 1px solid var(--line); padding: 5px 9px; text-align: center; }
@@ -235,6 +248,7 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 #btn-scan { color: var(--danger); }
 #btn-radar { color: var(--amber); }
 #btn-radar:disabled { color: var(--ink-dim); opacity: .5; cursor: not-allowed; }
+.act.locked { color: var(--ink-dim); opacity: .45; cursor: not-allowed; }
 #btn-code { color: var(--phos); }
 
 /* Bouton recentrage carte */

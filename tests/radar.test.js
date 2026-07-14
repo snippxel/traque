@@ -42,7 +42,7 @@ const FAR_HIDER = { lat: 48.8620, lng: 2.3600, accuracy: 10 };   // ~800 m
   host.emit('assignRoles', { mode: 'manual', assignments: {
     [created.playerId]: 'hunter', [jNear.playerId]: 'hider', [jFar.playerId]: 'hider',
   } });
-  host.emit('updateConfig', { config: { startRadius: 2000, finalRadius: 100, durationMin: 20, shrinkSteps: 4, revealIntervalMin: 5, graceSeconds: 10, lastSurvivor: false } });
+  host.emit('updateConfig', { config: { startRadius: 2000, finalRadius: 100, durationMin: 20, shrinkSteps: 4, revealIntervalMin: 5, graceSeconds: 10, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(200);
 
   host.emit('pos', HUNTER_POS);

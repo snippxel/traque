@@ -28,7 +28,7 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
   host.on('hunter:flash', () => { gotFlash = true; });
 
   host.emit('assignRoles', { mode: 'manual', assignments: { [created.playerId]: 'hunter', [joined.playerId]: 'hider' } });
-  host.emit('updateConfig', { config: { startRadius: 200, finalRadius: 50, durationMin: 10, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 3, lastSurvivor: false } });
+  host.emit('updateConfig', { config: { startRadius: 200, finalRadius: 50, durationMin: 10, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(200);
   host.emit('pos', CENTER);
   guest.emit('pos', NEAR);
