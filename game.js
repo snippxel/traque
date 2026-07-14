@@ -33,6 +33,7 @@ function defaultConfig() {
     shrinkSteps: 5, // paliers (1..10)
     revealIntervalMin: 5, // minutes entre deux révélations
     graceSeconds: 10, // délai de grâce hors-zone
+    radarUses: RADAR_USES, // nombre de radars par chasseur
     lastSurvivor: false,
   };
 }
@@ -160,8 +161,9 @@ class Room {
     c.finalRadius = clamp(num(cfg.finalRadius, c.finalRadius), 10, c.startRadius);
     c.durationMin = clamp(num(cfg.durationMin, c.durationMin), 1, 600);
     c.shrinkSteps = clamp(Math.round(num(cfg.shrinkSteps, c.shrinkSteps)), 1, 10);
-    c.revealIntervalMin = clamp(num(cfg.revealIntervalMin, c.revealIntervalMin), 0.5, 60);
+    c.revealIntervalMin = clamp(num(cfg.revealIntervalMin, c.revealIntervalMin), 0.1, 60);
     c.graceSeconds = clamp(Math.round(num(cfg.graceSeconds, c.graceSeconds)), 3, 120);
+    c.radarUses = clamp(Math.round(num(cfg.radarUses, c.radarUses)), 0, 20);
     c.lastSurvivor = !!cfg.lastSurvivor;
     if (c.finalRadius > c.startRadius) c.finalRadius = c.startRadius;
   }
@@ -199,8 +201,11 @@ class Room {
     this.snapshotReveals();
     this.nextRevealAt = this.startTime + this.config.revealIntervalMin * 60 * 1000;
 
-    // Fige les rôles de départ pour les stats
-    for (const p of this.players.values()) p.startRole = p.role;
+    // Fige les rôles de départ pour les stats, et attribue les radars configurés
+    for (const p of this.players.values()) {
+      p.startRole = p.role;
+      p.radarUsesLeft = this.config.radarUses;
+    }
 
     this.status = 'playing';
     return { ok: true };
@@ -427,7 +432,7 @@ class Room {
         role: me.role,
         qrToken: me.qrToken,
         radarUsesLeft: me.radarUsesLeft,
-        radarMax: RADAR_USES,
+        radarMax: this.config.radarUses,
         pos: me.pos,
       },
       counts: this.counts(),

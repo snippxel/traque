@@ -14,7 +14,8 @@
     "test:zone": "node tests/zone.test.js",
     "test:radar": "node tests/radar.test.js",
     "test:chat": "node tests/chat.test.js",
-    "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js"
+    "test:config": "node tests/config.test.js",
+    "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/config.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

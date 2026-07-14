@@ -59,8 +59,9 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
    rejoignent. Seul l'hôte voit la configuration et le bouton de lancement (vérifié
    côté serveur). Il répartit les rôles (aléatoire ~25 % de chasseurs, ou manuel).
 2. **Config** — rayon de départ/final de la zone, durée, nombre de paliers,
-   intervalle de révélation, délai de grâce hors-zone, mode « dernier survivant ».
-   Une case de sécurité obligatoire déverrouille le lancement.
+   intervalle de révélation, délai de grâce hors-zone, **nombre de radars par
+   chasseur**, mode « dernier survivant ». Une case de sécurité obligatoire
+   déverrouille le lancement.
 3. **En jeu**
    - **Visibilité asymétrique** : un chasseur voit ses coéquipiers en temps réel et
      la *dernière position révélée* des cachés (signal gris, mis à jour toutes les X

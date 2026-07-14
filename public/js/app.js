@@ -189,6 +189,7 @@
       'cfg-startRadius': cfg.startRadius, 'cfg-finalRadius': cfg.finalRadius,
       'cfg-durationMin': cfg.durationMin, 'cfg-shrinkSteps': cfg.shrinkSteps,
       'cfg-revealIntervalMin': cfg.revealIntervalMin, 'cfg-graceSeconds': cfg.graceSeconds,
+      'cfg-radarUses': cfg.radarUses,
     };
     for (const [id, v] of Object.entries(map)) {
       const el = $(id);
@@ -461,21 +462,23 @@
   $('input-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
 
   // --- Lobby : config ---
-  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-lastSurvivor'];
+  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-lastSurvivor'];
   let cfgTimer = null;
+  function readConfig() {
+    return {
+      startRadius: +$('cfg-startRadius').value,
+      finalRadius: +$('cfg-finalRadius').value,
+      durationMin: +$('cfg-durationMin').value,
+      shrinkSteps: +$('cfg-shrinkSteps').value,
+      revealIntervalMin: +$('cfg-revealIntervalMin').value,
+      graceSeconds: +$('cfg-graceSeconds').value,
+      radarUses: +$('cfg-radarUses').value,
+      lastSurvivor: $('cfg-lastSurvivor').checked,
+    };
+  }
   function pushConfig() {
     clearTimeout(cfgTimer);
-    cfgTimer = setTimeout(() => {
-      socket.emit('updateConfig', { config: {
-        startRadius: +$('cfg-startRadius').value,
-        finalRadius: +$('cfg-finalRadius').value,
-        durationMin: +$('cfg-durationMin').value,
-        shrinkSteps: +$('cfg-shrinkSteps').value,
-        revealIntervalMin: +$('cfg-revealIntervalMin').value,
-        graceSeconds: +$('cfg-graceSeconds').value,
-        lastSurvivor: $('cfg-lastSurvivor').checked,
-      }});
-    }, 250);
+    cfgTimer = setTimeout(() => socket.emit('updateConfig', { config: readConfig() }), 250);
   }
   cfgIds.forEach((id) => { const el = $(id); if (el) el.addEventListener('change', pushConfig); });
 
@@ -495,6 +498,10 @@
   }
   $('btn-launch').onclick = () => {
     if (!state.selfPos) { $('lobby-error').textContent = 'Position GPS non acquise (nécessaire pour centrer la zone).'; return; }
+    // On envoie la config à jour AVANT de lancer (les messages socket sont ordonnés),
+    // sinon une modif de dernière seconde encore débouncée serait perdue au lancement.
+    clearTimeout(cfgTimer);
+    socket.emit('updateConfig', { config: readConfig() });
     socket.emit('startGame', { safetyChecked: $('chk-safety').checked }, (res) => {
       if (!res || !res.ok) $('lobby-error').textContent = (res && res.error) || 'Impossible de lancer.';
     });
