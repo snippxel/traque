@@ -96,6 +96,20 @@ function tickGame(room, now) {
 
   const radius = room.currentRadius(now);
 
+  // Alerte "la zone va se fermer" : ~1 min avant chaque rétrécissement, une seule
+  // fois, et UNIQUEMENT aux cachés qui ne sont pas déjà dans la prochaine zone.
+  const next = room.nextShrink(now);
+  if (next && next.atTime - now <= 60000 && !room.shrinkWarned.has(next.atTime)) {
+    room.shrinkWarned.add(next.atTime);
+    for (const p of room.players.values()) {
+      if (p.role !== 'hider' || !p.pos || !p.connected || !p.socketId) continue;
+      const tol = Math.min(p.pos.accuracy || 0, ZONE_TOLERANCE_MAX_M);
+      if (room.distanceFromCenter(p.pos) - tol > next.radius) {
+        io.to(p.socketId).emit('zone:closing', { atTime: next.atTime, radius: Math.round(next.radius) });
+      }
+    }
+  }
+
   // Sorties de zone (cachés uniquement)
   for (const p of room.players.values()) {
     if (p.role !== 'hider' || !p.pos) continue;

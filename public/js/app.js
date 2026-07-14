@@ -23,6 +23,7 @@
     inGame: false,
     alertDeadline: null,
     spottedUntil: 0,     // fin de la fenêtre "chasseur visible" (repéré au radar)
+    zoneClosingAt: 0,    // heure du prochain rétrécissement annoncé (alerte -1 min)
     manualRoles: {},     // cache local pour l'attribution manuelle
     roleMode: 'random',
   };
@@ -84,6 +85,14 @@
     Sensors.vibrate([300, 150, 300, 150, 600]);
   });
   socket.on('zone:alertCancelled', () => clearZoneAlert());
+
+  // La zone va se fermer (~1 min) et je ne suis pas dans la prochaine zone
+  socket.on('zone:closing', ({ atTime }) => {
+    state.zoneClosingAt = atTime;
+    $('zone-closing').classList.remove('hidden');
+    Sensors.vibrate([200, 100, 200]);
+    Sensors.ping(1300); Sensors.ping(1000);
+  });
 
   socket.on('converted', ({ reason, by }) => {
     clearZoneAlert();
@@ -274,6 +283,7 @@
     $('btn-radar').classList.toggle('hidden', role !== 'hunter');
     updateRadarButton();
     $('compass').classList.toggle('hidden', role !== 'hider');
+    $('reveal-timer').classList.toggle('hidden', role !== 'hunter');
     if (role === 'hunter') stopCompass();
 
     updateTimers();
@@ -283,7 +293,7 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); }, 250);
   }
   // Bouton radar : nombre d'utilisations restantes (3 par partie)
   function updateRadarButton() {
@@ -311,6 +321,17 @@
       const d = Math.max(0, s.zone.nextShrinkAt - Date.now());
       $('shrink-timer').textContent = fmt(d);
     }
+    // Prochaine révélation périodique (chasseurs) — basé sur l'intervalle configuré
+    if (state.role === 'hunter') {
+      const rt = $('reveal-timer');
+      if (s.nextRevealAt) {
+        const left = Math.max(0, s.nextRevealAt - Date.now());
+        $('rt-value').textContent = fmt(left);
+        rt.classList.toggle('soon', left < 15000);
+      } else {
+        $('rt-value').textContent = '--:--';
+      }
+    }
     // Boussole (cachés)
     if (state.role === 'hider' && s.zone && s.zone.center && state.selfPos) {
       const brg = GameMap.bearing(state.selfPos, s.zone.center);
@@ -334,6 +355,19 @@
     if (spotAlertTimer) clearTimeout(spotAlertTimer);
     spotAlertTimer = setTimeout(() => el.classList.add('hidden'), 6000);
   }
+  // Bannière décomptée avant la fermeture de la zone (cachés hors prochaine zone)
+  function updateZoneClosing() {
+    const banner = $('zone-closing');
+    const left = (state.zoneClosingAt || 0) - Date.now();
+    if (left > 0) {
+      banner.classList.remove('hidden');
+      $('zc-timer').textContent = fmt(left);
+    } else {
+      banner.classList.add('hidden');
+      state.zoneClosingAt = 0;
+    }
+  }
+
   // Bannière décomptée pendant que la position du chasseur reste visible (30 s)
   function updateSpotBanner() {
     const banner = $('spot-banner');
@@ -366,8 +400,11 @@
     Sensors.releaseWakeLock();
     clearZoneAlert();
     state.spottedUntil = 0;
+    state.zoneClosingAt = 0;
     $('spot-alert').classList.add('hidden');
     $('spot-banner').classList.add('hidden');
+    $('zone-closing').classList.add('hidden');
+    $('reveal-timer').classList.add('hidden');
     $('modal-chat').classList.add('hidden');
     $('chat-messages').innerHTML = '';
   }
@@ -595,8 +632,21 @@
   Sensors.initWakeLockAutoReacquire();
   updateLaunchState();
 
-  // Service worker (installabilité PWA)
+  // Service worker (installabilité PWA) + mise à jour automatique.
+  // Quand une nouvelle version est déployée, on recharge tout seul : plus besoin
+  // de vider le cache à la main.
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+    let reloading = false;
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return; // pas de reload à la toute première prise de contrôle
+      reloading = true;
+      window.location.reload();
+    });
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => { reg.update().catch(() => {}); })
+        .catch(() => {});
+    });
   }
 })();

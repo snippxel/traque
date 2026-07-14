@@ -92,6 +92,7 @@ class Room {
     this.tempReveals = []; // révélations exactes temporaires {playerId,name,lat,lng,until,kind}
     this.counterReveals = []; // {hiderId, hunterId, until} : le caché repéré voit le chasseur
     this.nextRevealAt = null;
+    this.shrinkWarned = new Set(); // atTime des rétrécissements déjà annoncés (alerte -1 min)
     this.result = null; // {winner, stats} une fois terminé
   }
 
@@ -498,6 +499,7 @@ class Room {
         }
       }
       base.signals = signals;
+      base.nextRevealAt = this.nextRevealAt; // pour le compte à rebours "prochaine révélation"
       // Révélations en DIRECT : on suit la position live du caché (repli sur le
       // snapshot du moment de la révélation s'il n'a plus de position récente).
       base.reveals = activeReveals
