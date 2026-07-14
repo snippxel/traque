@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>TRAQUE // OPS</title>
+
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <!-- ================= ÉCRAN : ACCUEIL ================= -->
+  <section id="screen-home" class="screen active">
+    <div class="home-wrap">
+      <header class="brand">
+        <div class="brand-mark"><span class="reticle"></span></div>
+        <h1 class="brand-title">TRAQUE</h1>
+        <p class="brand-sub">// PROTOCOLE CACHE-CACHE — IRL GEO-OPS</p>
+      </header>
+
+      <div class="panel bracket">
+        <label class="field">
+          <span class="field-label">IDENTIFIANT OPÉRATEUR</span>
+          <input id="input-name" type="text" maxlength="20" placeholder="ex. FOX-07" autocomplete="off" />
+        </label>
+
+        <button id="btn-create" class="btn btn-primary">[ CRÉER UNE PARTIE ]</button>
+
+        <div class="sep"><span>OU</span></div>
+
+        <label class="field">
+          <span class="field-label">CODE DE PARTIE</span>
+          <input id="input-code" type="text" maxlength="5" placeholder="XXXXX" autocomplete="off" class="code-input" />
+        </label>
+        <button id="btn-join" class="btn">[ REJOINDRE ]</button>
+      </div>
+      <p id="home-error" class="err-line"></p>
+      <p class="foot-note">Aucun compte. Aucune donnée stockée. Une partie = un objet en mémoire.</p>
+    </div>
+  </section>
+
+  <!-- ================= ÉCRAN : LOBBY ================= -->
+  <section id="screen-lobby" class="screen">
+    <div class="lobby-wrap">
+      <header class="lobby-head">
+        <div>
+          <div class="mini-label">CODE DE PARTIE</div>
+          <div id="lobby-code" class="lobby-code">-----</div>
+        </div>
+        <button id="btn-copy-code" class="btn btn-ghost btn-sm">[ COPIER ]</button>
+      </header>
+
+      <div class="panel bracket">
+        <div class="mini-label">OPÉRATEURS CONNECTÉS <span id="roster-count" class="tag">0</span></div>
+        <ul id="roster" class="roster"></ul>
+      </div>
+
+      <!-- Panneau HÔTE -->
+      <div id="host-panel" class="panel bracket hidden">
+        <div class="mini-label">RÉPARTITION DES RÔLES</div>
+        <div class="role-mode">
+          <button id="btn-role-random" class="btn btn-sm active">[ ALÉATOIRE ~25% ]</button>
+          <button id="btn-role-manual" class="btn btn-sm">[ MANUEL ]</button>
+        </div>
+        <div id="manual-assign" class="manual-assign hidden"></div>
+
+        <div class="mini-label mt">PARAMÈTRES</div>
+        <div class="cfg-grid">
+          <label class="cfg"><span>Rayon départ (m)</span><input id="cfg-startRadius" type="number" min="20" max="20000" step="10" /></label>
+          <label class="cfg"><span>Rayon final (m)</span><input id="cfg-finalRadius" type="number" min="10" max="20000" step="10" /></label>
+          <label class="cfg"><span>Durée (min)</span><input id="cfg-durationMin" type="number" min="1" max="600" step="1" /></label>
+          <label class="cfg"><span>Paliers (1–10)</span><input id="cfg-shrinkSteps" type="number" min="1" max="10" step="1" /></label>
+          <label class="cfg"><span>Révélation (min)</span><input id="cfg-revealIntervalMin" type="number" min="0.5" max="60" step="0.5" /></label>
+          <label class="cfg"><span>Grâce hors-zone (s)</span><input id="cfg-graceSeconds" type="number" min="3" max="120" step="1" /></label>
+        </div>
+        <label class="check-line">
+          <input id="cfg-lastSurvivor" type="checkbox" />
+          <span>Mode « dernier survivant » (pas de limite de temps)</span>
+        </label>
+
+        <label class="check-line danger-check">
+          <input id="chk-safety" type="checkbox" />
+          <span>J’ai vérifié que la zone est sûre — pas de routes passantes, plans d’eau, etc.</span>
+        </label>
+
+        <button id="btn-launch" class="btn btn-primary" disabled>[ LANCER LA PARTIE ]</button>
+        <p id="lobby-error" class="err-line"></p>
+      </div>
+
+      <!-- Panneau JOUEUR (non-hôte) -->
+      <div id="guest-panel" class="panel bracket hidden">
+        <div class="waiting">
+          <span class="pulse-dot"></span>
+          <div>
+            <div class="waiting-title">EN ATTENTE DE L’HÔTE</div>
+            <div class="waiting-sub">Ton rôle : <b id="guest-role">—</b>. Le lancement est verrouillé de ton côté.</div>
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-leave-lobby" class="btn btn-ghost btn-sm">[ QUITTER ]</button>
+    </div>
+  </section>
+
+  <!-- ================= ÉCRAN : JEU ================= -->
+  <section id="screen-game" class="screen">
+    <div id="map"></div>
+
+    <!-- Bandeau HUD haut -->
+    <div class="hud hud-top">
+      <div class="hud-cell">
+        <div class="hud-k">RÔLE</div>
+        <div id="hud-role" class="hud-v">—</div>
+      </div>
+      <div class="hud-cell">
+        <div class="hud-k">ZONE ⌀</div>
+        <div id="hud-radius" class="hud-v">—</div>
+      </div>
+      <div class="hud-cell">
+        <div class="hud-k" id="hud-timer-k">TEMPS</div>
+        <div id="hud-timer" class="hud-v">--:--</div>
+      </div>
+      <div class="hud-cell">
+        <div class="hud-k">RESTANTS</div>
+        <div id="hud-targets" class="hud-v">—</div>
+      </div>
+    </div>
+
+    <!-- Sous-bandeau : prochain rétrécissement -->
+    <div id="hud-shrink" class="hud-shrink">PROCHAIN RÉTRÉCISSEMENT DANS <span id="shrink-timer">--:--</span></div>
+
+    <!-- Badge GPS -->
+    <div id="gps-badge" class="gps-badge">GPS <span id="gps-acc">--</span></div>
+
+    <!-- Boussole (cachés) -->
+    <div id="compass" class="compass hidden">
+      <div class="compass-ring">
+        <div id="compass-needle" class="compass-needle"></div>
+      </div>
+      <div class="compass-label">ZONE</div>
+    </div>
+
+    <!-- Chat rapide -->
+    <div id="chat-log" class="chat-log"></div>
+
+    <!-- Barre d'actions bas -->
+    <div class="action-bar">
+      <button id="btn-code" class="act hidden">MON CODE</button>
+      <button id="btn-scan" class="act hidden">ÉLIMINER</button>
+      <button id="btn-radar" class="act hidden">RADAR</button>
+      <button id="btn-chat" class="act">ÉQUIPE</button>
+    </div>
+
+    <!-- Alerte hors-zone plein écran -->
+    <div id="zone-alert" class="zone-alert hidden">
+      <div class="za-inner">
+        <div class="za-title">⚠ HORS ZONE</div>
+        <div class="za-sub">REVIENS DANS LA ZONE SÛRE</div>
+        <div id="za-countdown" class="za-count">10</div>
+        <div class="za-note">CONVERSION FORCÉE À 0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ÉCRAN : FIN ================= -->
+  <section id="screen-end" class="screen">
+    <div class="end-wrap">
+      <div id="end-banner" class="end-banner">FIN DE PARTIE</div>
+      <div class="panel bracket">
+        <div class="mini-label">DÉBRIEFING</div>
+        <div class="table-scroll">
+          <table id="stats-table" class="stats">
+            <thead>
+              <tr><th>OPÉRATEUR</th><th>RÔLE</th><th>SURVIE</th><th>DIST.</th><th>CAPT.</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <button id="btn-home" class="btn btn-primary">[ RETOUR ]</button>
+    </div>
+  </section>
+
+  <!-- ================= MODALES ================= -->
+  <div id="modal-qr" class="modal hidden">
+    <div class="modal-card bracket">
+      <div class="modal-title">MON CODE D’IDENTITÉ</div>
+      <div class="modal-sub">Un chasseur doit scanner ceci pour t’éliminer.</div>
+      <canvas id="qr-canvas" width="240" height="240"></canvas>
+      <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
+    </div>
+  </div>
+
+  <div id="modal-scan" class="modal hidden">
+    <div class="modal-card bracket scan-card">
+      <div class="modal-title">SCAN CIBLE</div>
+      <div class="scan-view">
+        <video id="scan-video" playsinline muted></video>
+        <div class="scan-reticle"></div>
+      </div>
+      <div id="scan-status" class="modal-sub">Vise le QR code de la cible…</div>
+      <button class="btn btn-ghost btn-sm modal-close">[ ANNULER ]</button>
+    </div>
+  </div>
+
+  <div id="modal-chat" class="modal hidden">
+    <div class="modal-card bracket">
+      <div class="modal-title">MESSAGE D’ÉQUIPE</div>
+      <div class="modal-sub">Visible uniquement par ton équipe.</div>
+      <div id="chat-buttons" class="chat-buttons"></div>
+      <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toasts" class="toasts"></div>
+
+  <!-- Libs externes (vanilla, pas de build step) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Modules applicatifs -->
+  <script src="/js/sensors.js"></script>
+  <script src="/js/map.js"></script>
+  <script src="/js/qr.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
