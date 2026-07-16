@@ -335,6 +335,30 @@ function ack(cb, data) {
   if (typeof cb === 'function') cb(data);
 }
 
+// ----------------------------------------------------------------------------
+// Robustesse : ne JAMAIS mourir en pleine partie
+// ----------------------------------------------------------------------------
+// L'état des parties vit uniquement en RAM : si le process tombe, tout est perdu
+// et Render relance à froid. Une exception isolée (bug dans un handler, socket
+// bizarre) ne doit donc pas tuer le serveur : on log et on continue.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException] partie préservée, on continue :', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
+
+// Anti-mise en veille (Render tier gratuit) : le service s'endort après ~15 min
+// sans requête entrante. On se ping soi-même pour rester chaud entre les parties
+// et éviter le démarrage à froid de ~30 s au moment de jouer.
+const SELF_URL = process.env.RENDER_EXTERNAL_URL;
+if (SELF_URL) {
+  const client = SELF_URL.startsWith('https') ? require('https') : require('http');
+  setInterval(() => {
+    client.get(SELF_URL + '/health', (r) => r.resume()).on('error', () => {});
+  }, 10 * 60 * 1000);
+}
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Traque en écoute sur le port ${PORT}`);

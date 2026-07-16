@@ -22,10 +22,16 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
   const created = await emit(host, 'createRoom', { name: 'CHASSEUR' });
   const joined = await emit(guest, 'joinRoom', { code: created.code, name: 'FUYARD' });
 
-  let gotAlert = false, gotFlash = false, convertedByZone = false;
+  let gotAlert = false, gotFlash = false, convertedByZone = false, flashReveal = null;
   guest.on('zone:alert', () => { gotAlert = true; });
   guest.on('converted', (d) => { if (d.reason === 'zone') convertedByZone = true; });
   host.on('hunter:flash', () => { gotFlash = true; });
+  // Le marqueur affiché vient UNIQUEMENT de l'état serveur (plus de pulse client) :
+  // on vérifie donc que le chasseur le reçoit bien, sinon il n'aurait qu'un toast.
+  host.on('state', (s) => {
+    const f = (s.reveals || []).find((r) => r.kind === 'flash');
+    if (f) flashReveal = f;
+  });
 
   host.emit('assignRoles', { mode: 'manual', assignments: { [created.playerId]: 'hunter', [joined.playerId]: 'hider' } });
   host.emit('updateConfig', { config: { startRadius: 200, finalRadius: 50, durationMin: 10, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
@@ -43,6 +49,9 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
   await wait(1800); // > 1 tick : détection de sortie
   assert(gotAlert, 'Caché reçoit l’alerte hors-zone');
   assert(gotFlash, 'Chasseur reçoit le flash de sortie (position exacte)');
+  assert(flashReveal, 'Chasseur VOIT le marqueur de sortie sur sa carte (reveals kind:flash)');
+  assert(flashReveal && Math.abs(flashReveal.lat - FAR.lat) < 1e-3 && Math.abs(flashReveal.lng - FAR.lng) < 1e-3,
+    'Le marqueur est bien à la position exacte du fuyard');
   assert(!convertedByZone, 'Pas encore converti (délai de grâce en cours)');
 
   // Il ne revient pas → conversion après le délai de grâce (3s)

@@ -17,7 +17,8 @@
     "test:config": "node tests/config.test.js",
     "test:zoneclose": "node tests/zoneclose.test.js",
     "test:start": "node tests/start.test.js",
-    "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js"
+    "test:resume": "node tests/resume.test.js",
+    "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
