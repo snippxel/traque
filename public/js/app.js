@@ -24,6 +24,7 @@
     alertDeadline: null,
     spottedUntil: 0,     // fin de la fenêtre "chasseur visible" (repéré au radar)
     zoneClosingAt: 0,    // heure du prochain rétrécissement annoncé (alerte -1 min)
+    wasDispersing: false, // pour détecter le passage dispersion -> chasse
     manualRoles: {},     // cache local pour l'attribution manuelle
     roleMode: 'random',
   };
@@ -71,8 +72,15 @@
         state.joined = true;
         if (firstJoin) startGeo();
         else toast('Reconnecté.', '', 2000);
-      } else if (!state.joined) {
+      } else {
         clearSession();
+        // La partie n'existe plus (serveur redémarré) ou la fenêtre de grâce de
+        // 90 s est passée. Sans ça, le joueur restait bloqué sur un écran figé
+        // qui ne se mettait plus jamais à jour.
+        if (state.joined) {
+          toast((res && res.error) || 'Session expirée.', 'danger', 6000);
+          leaveToHome();
+        }
       }
     });
   });
@@ -408,8 +416,17 @@
     const now = Date.now();
     if (!s || s.status !== 'playing' || !s.dispersionEndsAt || now >= s.dispersionEndsAt) {
       banner.classList.add('hidden');
+      // Transition dispersion -> chasse : son + vibration pour que tout le monde
+      // le sente sans avoir les yeux sur l'écran.
+      if (state.wasDispersing && s && s.status === 'playing') {
+        state.wasDispersing = false;
+        Sensors.vibrate([120, 80, 120, 80, 350]);
+        Sensors.ping(1400); setTimeout(() => Sensors.ping(1900), 170);
+        toast(state.role === 'hunter' ? 'CHASSE OUVERTE — à toi de jouer !' : 'La chasse est lancée. Reste planqué.', 'amber', 4500);
+      }
       return;
     }
+    state.wasDispersing = true;
     banner.classList.remove('hidden');
     const hunter = state.role === 'hunter';
     banner.classList.toggle('hunter', hunter);
@@ -473,6 +490,7 @@
     clearZoneAlert();
     state.spottedUntil = 0;
     state.zoneClosingAt = 0;
+    state.wasDispersing = false;
     $('spot-alert').classList.add('hidden');
     $('spot-banner').classList.add('hidden');
     $('zone-closing').classList.add('hidden');
