@@ -57,14 +57,17 @@ async function scenarioReveal() {
   host.on('state', (s) => { if (s.status === 'playing') hostState = s; });
   const start = await emit(host, 'startGame', { safetyChecked: true });
   assert(start.ok, 'Partie lancée');
-  // Première révélation à l'intervalle (~6 s), pas à t=0
-  await wait(7000);
+  // Première révélation à l'intervalle (~6 s), pas à t=0.
+  // On attend 6 s + un tick de diffusion (1,5 s) + marge : sinon le dernier état
+  // reçu peut dater d'avant la révélation (course).
+  await wait(8500);
   const sig1 = hostState && hostState.signals && hostState.signals.find((x) => x.name === 'CIBLE');
   assert(sig1, 'Signal gris présent après le 1er intervalle de révélation');
+  if (!sig1) { host.close(); guest.close(); return; }
 
   // Le caché se déplace ; après un nouvel intervalle, le signal doit suivre
   guest.emit('pos', HIDER_MOVED);
-  await wait(7000);
+  await wait(8500);
   const sig2 = hostState.signals.find((x) => x.name === 'CIBLE');
   assert(sig2 && (Math.abs(sig2.lat - sig1.lat) > 1e-5 || Math.abs(sig2.lng - sig1.lng) > 1e-5),
     'La révélation périodique se met à jour à l’intervalle configuré');
