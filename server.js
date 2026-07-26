@@ -34,10 +34,15 @@ const socketIndex = new Map();
 // Helpers d'émission
 // ----------------------------------------------------------------------------
 function emitStateToRoom(room) {
+  // Isolation par joueur : si stateFor() plante pour l'un d'eux, les autres
+  // reçoivent quand même leur état (sinon toute la salle se fige en silence).
   for (const p of room.players.values()) {
-    if (p.connected && p.socketId) {
+    if (!p.connected || !p.socketId) continue;
+    try {
       const s = room.stateFor(p.id);
       if (s) io.to(p.socketId).emit('state', s);
+    } catch (err) {
+      console.error(`[state] échec pour le joueur ${p.name} (${p.id}) salle ${room.code} :`, err);
     }
   }
 }
@@ -53,31 +58,37 @@ const TICK_MS = 1500;
 setInterval(() => {
   const now = Date.now();
   for (const room of gm.rooms.values()) {
-    // Nettoyage des joueurs déconnectés au-delà de la fenêtre de grâce
-    let removed = false;
-    for (const p of [...room.players.values()]) {
-      if (!p.connected && p.disconnectAt && now - p.disconnectAt > RECONNECT_GRACE_MS) {
-        room.players.delete(p.id);
-        room.lastReveal.delete(p.id);
-        removed = true;
+    // Une salle en erreur ne doit JAMAIS empêcher les autres salles (ni les
+    // ticks suivants) de continuer à recevoir leurs mises à jour.
+    try {
+      // Nettoyage des joueurs déconnectés au-delà de la fenêtre de grâce
+      let removed = false;
+      for (const p of [...room.players.values()]) {
+        if (!p.connected && p.disconnectAt && now - p.disconnectAt > RECONNECT_GRACE_MS) {
+          room.players.delete(p.id);
+          room.lastReveal.delete(p.id);
+          removed = true;
+        }
       }
-    }
-    // Salle vide -> suppression (aucune persistance)
-    if (room.players.size === 0) {
-      gm.deleteRoom(room.code);
-      continue;
-    }
-    // Réattribution de l'hôte si l'hôte est parti
-    if (!room.players.has(room.hostId)) {
-      const next = [...room.players.values()][0];
-      room.hostId = next ? next.id : null;
-    }
+      // Salle vide -> suppression (aucune persistance)
+      if (room.players.size === 0) {
+        gm.deleteRoom(room.code);
+        continue;
+      }
+      // Réattribution de l'hôte si l'hôte est parti
+      if (!room.players.has(room.hostId)) {
+        const next = [...room.players.values()][0];
+        room.hostId = next ? next.id : null;
+      }
 
-    if (room.status === 'playing') {
-      tickGame(room, now);
+      if (room.status === 'playing') {
+        tickGame(room, now);
+      }
+      // Diffusion groupée : un seul envoi d'état par tick, quel que soit le statut
+      emitStateToRoom(room);
+    } catch (err) {
+      console.error(`[tick] erreur dans la salle ${room.code} :`, err);
     }
-    // Diffusion groupée : un seul envoi d'état par tick, quel que soit le statut
-    emitStateToRoom(room);
   }
 }, TICK_MS);
 

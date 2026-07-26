@@ -22,10 +22,12 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
   const created = await emit(host, 'createRoom', { name: 'CHASSEUR' });
   const joined = await emit(guest, 'joinRoom', { code: created.code, name: 'FUYARD' });
 
-  let gotAlert = false, gotFlash = false, convertedByZone = false, flashReveal = null;
+  let gotAlert = false, gotFlash = false, convertedByZone = false, flashReveal = null, flashPayload = null;
   guest.on('zone:alert', () => { gotAlert = true; });
   guest.on('converted', (d) => { if (d.reason === 'zone') convertedByZone = true; });
-  host.on('hunter:flash', () => { gotFlash = true; });
+  // Le payload doit inclure lat/lng : le client recadre la carte dessus (sinon
+  // un marqueur loin de la vue courante reste invisible malgré le toast).
+  host.on('hunter:flash', (d) => { gotFlash = true; flashPayload = d; });
   // Le marqueur affiché vient UNIQUEMENT de l'état serveur (plus de pulse client) :
   // on vérifie donc que le chasseur le reçoit bien, sinon il n'aurait qu'un toast.
   host.on('state', (s) => {
@@ -52,6 +54,8 @@ const FAR = { lat: 48.8700, lng: 2.3700, accuracy: 8 };     // ~2 km → hors zo
   assert(flashReveal, 'Chasseur VOIT le marqueur de sortie sur sa carte (reveals kind:flash)');
   assert(flashReveal && Math.abs(flashReveal.lat - FAR.lat) < 1e-3 && Math.abs(flashReveal.lng - FAR.lng) < 1e-3,
     'Le marqueur est bien à la position exacte du fuyard');
+  assert(flashPayload && Number.isFinite(flashPayload.lat) && Number.isFinite(flashPayload.lng),
+    'Le payload hunter:flash contient lat/lng (nécessaire pour recadrer la carte dessus)');
   assert(!convertedByZone, 'Pas encore converti (délai de grâce en cours)');
 
   // Il ne revient pas → conversion après le délai de grâce (3s)

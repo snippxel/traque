@@ -121,17 +121,31 @@
     Sensors.vibrate([600]);
   });
 
-  socket.on('hunter:flash', ({ name }) => {
+  socket.on('hunter:flash', ({ name, lat, lng }) => {
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
+    // Mais s'il est loin de la vue actuelle, il reste invisible sans recadrage :
+    // le joueur voyait le toast sans jamais voir le point apparaître.
     Sensors.ping(1400);
     Sensors.vibrate(120);
     toast('SORTIE DE ZONE : ' + name, 'amber', 4000);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const pts = [[lat, lng]];
+      if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
+      GameMap.focus(pts);
+    }
   });
 
-  socket.on('radar:result', ({ name }) => {
+  socket.on('radar:result', ({ name, lat, lng }) => {
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
+    // Même recadrage que hunter:flash : sinon la cible révélée loin du chasseur
+    // n'apparaît jamais à l'écran malgré le toast de confirmation.
     Sensors.ping(1600);
     toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const pts = [[lat, lng]];
+      if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
+      GameMap.focus(pts);
+    }
   });
 
   // Le caché a été repéré au radar : alerte marquée (son + vibration répétés,
@@ -142,7 +156,12 @@
     Sensors.vibrate([300, 150, 300, 150, 300, 150, 600]);
     let beeps = 0;
     const bz = setInterval(() => { Sensors.ping(1500); Sensors.ping(1050); if (++beeps >= 6) clearInterval(bz); }, 450);
-    if (hunter) GameMap.setSpotted([{ name: hunter.name, lat: hunter.lat, lng: hunter.lng, until }]);
+    if (hunter) {
+      GameMap.setSpotted([{ name: hunter.name, lat: hunter.lat, lng: hunter.lng, until }]);
+      const pts = [[hunter.lat, hunter.lng]];
+      if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
+      GameMap.focus(pts);
+    }
   });
 
   // Chat global (texte libre) : reçu par tous

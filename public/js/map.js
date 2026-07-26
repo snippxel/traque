@@ -52,6 +52,18 @@ window.GameMap = (function () {
 
   function recenter(pos) { if (map && pos) map.setView([pos.lat, pos.lng], map.getZoom()); }
 
+  // Cadre la carte pour que TOUS les points donnés soient visibles à l'écran.
+  // Sans ça, un marqueur créé loin de la vue actuelle (radar, flash de sortie de
+  // zone) existe bien sur la carte mais reste invisible tant qu'on ne scrolle
+  // pas manuellement dessus — ce que le joueur perçoit comme "rien ne s'affiche".
+  function focus(points) {
+    if (!map) return;
+    const pts = (points || []).filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (!pts.length) return;
+    if (pts.length === 1) { map.setView(pts[0], Math.max(map.getZoom(), 16), { animate: true }); return; }
+    map.fitBounds(L.latLngBounds(pts).pad(0.3), { animate: true, maxZoom: 17 });
+  }
+
   // Met à jour un ensemble de marqueurs (coéquipiers OU signaux)
   function syncMarkers(list, kindClass, keyPrefix) {
     const seen = new Set();
@@ -154,7 +166,7 @@ window.GameMap = (function () {
   function invalidate() { if (map) setTimeout(() => map.invalidateSize(), 60); }
 
   return {
-    init, setSelf, recenter, setTeammates, setSignals, clearSignals,
+    init, setSelf, recenter, focus, setTeammates, setSignals, clearSignals,
     setReveals, setSpotted, pulse, setZone, bearing, reset, invalidate,
   };
 })();
