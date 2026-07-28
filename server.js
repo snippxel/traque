@@ -14,6 +14,7 @@ const {
   GameManager,
   CHAT_MAX_LEN,
   RECONNECT_GRACE_MS,
+  RECONNECT_GRACE_PLAYING_MS,
   FLASH_MS,
   ZONE_TOLERANCE_MAX_M,
 } = require('./game');
@@ -61,10 +62,13 @@ setInterval(() => {
     // Une salle en erreur ne doit JAMAIS empêcher les autres salles (ni les
     // ticks suivants) de continuer à recevoir leurs mises à jour.
     try {
-      // Nettoyage des joueurs déconnectés au-delà de la fenêtre de grâce
+      // Nettoyage des joueurs déconnectés au-delà de la fenêtre de grâce.
+      // En pleine partie la fenêtre est très longue : on préfère garder la place
+      // d'un joueur qui a perdu le réseau plutôt que de casser la partie.
+      const grace = room.status === 'playing' ? RECONNECT_GRACE_PLAYING_MS : RECONNECT_GRACE_MS;
       let removed = false;
       for (const p of [...room.players.values()]) {
-        if (!p.connected && p.disconnectAt && now - p.disconnectAt > RECONNECT_GRACE_MS) {
+        if (!p.connected && p.disconnectAt && now - p.disconnectAt > grace) {
           room.players.delete(p.id);
           room.lastReveal.delete(p.id);
           removed = true;
@@ -181,12 +185,34 @@ io.on('connection', (socket) => {
     emitStateToRoom(room);
   });
 
-  // --- Rejoindre une partie ---
+  // --- Rejoindre une partie (ou REPRENDRE sa place avec le code) ---
   socket.on('joinRoom', ({ code, name } = {}, cb) => {
     const room = gm.getRoom(code);
     if (!room) return ack(cb, { ok: false, error: 'Aucune partie avec ce code.' });
-    if (room.status !== 'lobby') return ack(cb, { ok: false, error: 'La partie a déjà commencé.' });
+    if (room.status === 'ended') return ack(cb, { ok: false, error: 'Cette partie est terminée.' });
+
+    // Reprise par le nom : filet de sécurité quand la session locale est perdue
+    // (téléphone redémarré, cache vidé, autre navigateur). On rend au joueur sa
+    // place exacte — rôle, token QR, stats — au lieu de le laisser dehors.
+    const reclaim = room.findReclaimable(name);
+    if (reclaim) {
+      reclaim.socketId = socket.id;
+      reclaim.connected = true;
+      reclaim.disconnectAt = null;
+      bind(socket, room.code, reclaim.id);
+      ack(cb, { ok: true, code: room.code, playerId: reclaim.id, qrToken: reclaim.qrToken, reclaimed: true });
+      emitStateToRoom(room);
+      return;
+    }
+
+    // Partie en cours : on n'accepte que les reprises, pas les nouveaux arrivants
+    // (sinon on fausserait l'équilibre des équipes en pleine chasse).
+    if (room.status !== 'lobby') {
+      return ack(cb, { ok: false, error: 'Partie en cours. Pour reprendre ta place, entre exactement le même nom qu’au départ.' });
+    }
+    if (room.isNameTaken(name)) return ack(cb, { ok: false, error: 'Ce nom est déjà pris dans cette partie.' });
     if (room.players.size >= 40) return ack(cb, { ok: false, error: 'Partie complète.' });
+
     const player = room.addPlayer(name);
     player.socketId = socket.id;
     bind(socket, room.code, player.id);

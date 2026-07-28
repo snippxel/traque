@@ -57,6 +57,47 @@ const HIDER = { lat: 48.8569, lng: 2.3525, accuracy: 8 };
   const bad = await emit(host, 'resume', { code: 'ZZZZZ', playerId: 'inexistant' });
   assert(bad && !bad.ok && bad.error, 'Session inconnue refusée proprement (avec message)');
 
+  // --- Reprise de place avec le CODE (session locale perdue) ---
+  // Cas réel : téléphone redémarré / cache vidé -> plus de session, mais le
+  // joueur doit pouvoir revenir en entrant le code et son nom.
+  const host2 = connect(), lost = connect();
+  await ready(host2); await ready(lost);
+  const c2 = await emit(host2, 'createRoom', { name: 'H2' });
+  const jl = await emit(lost, 'joinRoom', { code: c2.code, name: 'PERDU' });
+  host2.emit('assignRoles', { mode: 'manual', assignments: { [c2.playerId]: 'hunter', [jl.playerId]: 'hider' } });
+  host2.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 200, durationMin: 20, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 10, radarUses: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
+  await wait(200);
+  host2.emit('pos', CENTER); lost.emit('pos', HIDER);
+  await wait(300);
+  await emit(host2, 'startGame', { safetyChecked: true });
+  await wait(300);
+
+  lost.close(); // perte totale (comme un téléphone éteint)
+  await wait(1200);
+
+  // Un nouveau socket, SANS session : il rejoint avec le code + le même nom
+  const back = connect();
+  await ready(back);
+  const rej = await emit(back, 'joinRoom', { code: c2.code, name: 'PERDU' });
+  assert(rej && rej.ok && rej.reclaimed, 'Rejoindre avec le code en pleine partie reprend la place');
+  assert(rej.playerId === jl.playerId, 'Même joueur (place exacte reprise, pas un nouveau)');
+  assert(rej.qrToken === jl.qrToken, 'Token QR conservé après reprise par le code');
+  const backSt = await new Promise((r) => { back.on('state', (s) => { if (s.status === 'playing') r(s); }); });
+  assert(backSt.you.role === 'hider', 'Rôle conservé après reprise par le code');
+
+  // Nom inconnu en pleine partie -> refusé avec une consigne claire
+  const stranger = connect();
+  await ready(stranger);
+  const no = await emit(stranger, 'joinRoom', { code: c2.code, name: 'INCONNU' });
+  assert(no && !no.ok && /même nom/i.test(no.error || ''), 'Un inconnu ne peut pas entrer en pleine partie (message clair)');
+
+  // Un nom déjà utilisé par un joueur ACTIF ne peut pas être volé
+  const thief = connect();
+  await ready(thief);
+  const stolen = await emit(thief, 'joinRoom', { code: c2.code, name: 'PERDU' });
+  assert(stolen && !stolen.ok, 'Impossible de voler la place d’un joueur actif');
+  host2.close(); back.close(); stranger.close(); thief.close();
+
   console.log('\n' + (failures === 0 ? 'TOUS LES TESTS PASSENT ✓' : failures + ' ÉCHEC(S) ✗'));
   host.close(); guest.close();
   process.exit(failures === 0 ? 0 : 1);

@@ -15,7 +15,11 @@ const ACCURACY_HARD_MAX_M = 3000; // au-delà, lecture absurde : on rejette
 const MOVE_MIN_M = 2; // en-deçà, on ne recalcule pas la distance parcourue
 const MOVE_MAX_M = 150; // au-delà (saut GPS), on ignore pour la distance cumulée
 const ZONE_TOLERANCE_MAX_M = 50; // marge d'incertitude GPS avant conversion hors-zone
-const RECONNECT_GRACE_MS = 90 * 1000; // fenêtre de reconnexion
+// Fenêtre de reconnexion. En pleine partie on est TRÈS permissif : perdre le
+// réseau 2 min dehors ne doit jamais éjecter un joueur et gâcher la partie.
+// En lobby on reste court, pour ne pas encombrer la liste avec des partants.
+const RECONNECT_GRACE_MS = 90 * 1000; // lobby
+const RECONNECT_GRACE_PLAYING_MS = 30 * 60 * 1000; // en jeu : 30 min
 const FLASH_MS = 6000; // durée d'un flash de sortie de zone chez les chasseurs
 const RADAR_USES = 3; // nombre de radars par partie et par chasseur
 const RADAR_REVEAL_MS = 60 * 1000; // la position révélée reste visible 1 min (chasseurs)
@@ -131,6 +135,29 @@ class Room {
 
   connectedPlayers() {
     return [...this.players.values()].filter((p) => p.connected);
+  }
+
+  // Retrouve la place d'un joueur à partir de son seul nom, pour lui permettre
+  // de re-rejoindre une partie en cours avec le code (session perdue, téléphone
+  // redémarré, navigateur qui a vidé le localStorage...). On ne rend une place
+  // que si elle est libre (joueur déconnecté), jamais celle de quelqu'un d'actif.
+  findReclaimable(name) {
+    const wanted = (name || '').trim().toLowerCase();
+    if (!wanted) return null;
+    for (const p of this.players.values()) {
+      if (!p.connected && p.name.trim().toLowerCase() === wanted) return p;
+    }
+    return null;
+  }
+
+  // Un nom déjà pris par un joueur ACTIF : on refuse le doublon pour éviter
+  // qu'un retardataire ne vole la place de quelqu'un en jeu.
+  isNameTaken(name) {
+    const wanted = (name || '').trim().toLowerCase();
+    for (const p of this.players.values()) {
+      if (p.connected && p.name.trim().toLowerCase() === wanted) return true;
+    }
+    return false;
   }
 
   // --- Attribution des rôles (lobby) --------------------------------------
@@ -590,6 +617,7 @@ module.exports = {
   Room,
   CHAT_MAX_LEN,
   RECONNECT_GRACE_MS,
+  RECONNECT_GRACE_PLAYING_MS,
   FLASH_MS,
   RADAR_USES,
   RADAR_REVEAL_MS,

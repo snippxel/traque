@@ -73,13 +73,14 @@
         if (firstJoin) startGeo();
         else toast('Reconnecté.', '', 2000);
       } else {
+        // Reprise impossible par l'identifiant de session. On ne laisse SURTOUT
+        // pas le joueur sur un écran figé : retour à l'accueil avec le code et le
+        // nom déjà remplis, il lui suffit d'appuyer sur REJOINDRE pour reprendre
+        // sa place exacte (le serveur le reconnaît à son nom).
+        const lostCode = sess.code, lostName = sess.name || state.name || '';
         clearSession();
-        // La partie n'existe plus (serveur redémarré) ou la fenêtre de grâce de
-        // 90 s est passée. Sans ça, le joueur restait bloqué sur un écran figé
-        // qui ne se mettait plus jamais à jour.
         if (state.joined) {
-          toast((res && res.error) || 'Session expirée.', 'danger', 6000);
-          leaveToHome();
+          sessionLost(lostCode, lostName, (res && res.error) || 'Session expirée.');
         }
       }
     });
@@ -612,6 +613,7 @@
       if (!res || !res.ok) return homeError((res && res.error) || 'Erreur.');
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
+      if (res.reclaimed) toast('Place reprise — ton rôle et ton code QR sont conservés.', '', 5000);
     });
   };
   function homeError(msg) { $('home-error').textContent = msg; }
@@ -762,13 +764,27 @@
   $('btn-home').onclick = leaveToHome;
 
   function leaveToHome() {
-    socket.emit('leave');
+    socket.emit('leave'); // départ volontaire : on libère vraiment la place
     clearSession();
+    resetToHome();
+    $('input-code').value = '';
+  }
+
+  // Retour à l'accueil SANS quitter la partie côté serveur : la place reste
+  // réservée, le joueur peut la reprendre en rejoignant avec le même nom.
+  function sessionLost(code, name, msg) {
+    resetToHome();
+    if (code) $('input-code').value = code;
+    if (name) $('input-name').value = name;
+    homeError(msg + ' Appuie sur REJOINDRE pour reprendre ta place.');
+    toast('Reconnexion nécessaire', 'danger', 6000);
+  }
+
+  function resetToHome() {
     teardownGame();
     Sensors.stopWatch();
     GameMap.reset();
     state.joined = false; state.code = null; state.playerId = null; state.last = null; state.selfPos = null; state.sentPos = null;
-    $('input-code').value = '';
     show('screen-home');
   }
 
@@ -781,6 +797,26 @@
     Sensors.ensureAudio();
     document.removeEventListener('pointerdown', unlock);
   }, { once: true });
+
+  // Hauteur réelle de la zone visible. window.innerHeight est la seule mesure
+  // fiable sur iOS : en paysage notamment, les unités CSS peuvent dépasser
+  // l'écran et faire disparaître le HUD (haut) et la barre d'actions (bas).
+  function setAppHeight() {
+    // Garde-fou : innerHeight peut valoir 0 (onglet en arrière-plan, rotation en
+    // cours). Écrire 0px écraserait le fallback CSS et ferait disparaître toute
+    // l'interface — on ignore alors la mesure et on garde la précédente.
+    const h = window.innerHeight;
+    if (!h || h < 200) return;
+    document.documentElement.style.setProperty('--app-h', h + 'px');
+    GameMap.invalidate(); // la carte doit se remesurer après un changement de taille
+  }
+  setAppHeight();
+  window.addEventListener('resize', setAppHeight);
+  window.addEventListener('orientationchange', () => {
+    // iOS met à jour innerHeight APRÈS la rotation : on remesure un peu plus tard
+    setTimeout(setAppHeight, 100);
+    setTimeout(setAppHeight, 500);
+  });
 
   // Wake lock auto-réacquisition
   Sensors.initWakeLockAutoReacquire();

@@ -45,9 +45,31 @@ body {
   /* Garde-fou : on ne dépasse JAMAIS la zone visible. 100svh = hauteur avec les
      barres du navigateur affichées (iOS Chrome/Safari), sinon le HUD collé en
      haut et la barre d'actions collée en bas passent derrière ces barres. */
+  /* --app-h est fixé en JS depuis window.innerHeight : c'est la seule mesure
+     fiable sur iOS (portrait ET paysage, barres du navigateur comprises). */
   height: 100%;
   height: 100svh;
+  height: var(--app-h, 100svh);
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Écran bas (paysage sur téléphone) : on compacte le HUD et la barre d'actions
+   pour qu'ils restent visibles au lieu de déborder hors de l'écran. */
+@media (max-height: 480px) {
+  .hud-cell { padding: 3px 4px; }
+  .hud-k { font-size: 8px; letter-spacing: 1px; }
+  .hud-v { font-size: 15px; }
+  .act { padding: 9px 4px 10px; font-size: 12px; }
+  .hud-shrink { top: 40px; font-size: 9px; padding: 2px 8px; }
+  .gps-badge { top: 62px; }
+  .compass, .reveal-timer { top: 62px; }
+  .reveal-timer.hider { top: 128px; }
+  .start-banner { top: 46px; padding: 6px 10px; }
+  .sb-title { font-size: 20px; letter-spacing: 3px; }
+  .sb-timer { font-size: 22px; margin-top: 2px; }
+  .sb-sub, .sb-note { font-size: 9px; }
+  .recenter { bottom: 52px; width: 38px; height: 38px; font-size: 18px; }
+  .chat-log { bottom: 52px; }
 }
 
 /* --- Décors globaux --- */
