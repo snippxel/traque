@@ -114,6 +114,17 @@ window.GameMap = (function () {
     }
   }
 
+  // Lieu où un coéquipier caché s'est fait prendre. Reste plus longtemps que les
+  // autres marqueurs : c'est une information tactique (secteur dangereux).
+  let downMarkers = [];
+  function addDown(lat, lng, name, ms) {
+    if (!map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const m = L.marker([lat, lng], { icon: divIcon('mk-down', '✖ ' + (name || '')), zIndexOffset: 800 }).addTo(map);
+    downMarkers.push(m);
+    setTimeout(() => { map.removeLayer(m); downMarkers = downMarkers.filter((x) => x !== m); }, ms || 120000);
+  }
+  function clearDowns() { downMarkers.forEach((m) => map.removeLayer(m)); downMarkers = []; }
+
   // Ajoute un marqueur pulsant ponctuel (utilisé pour le flash instantané)
   function pulse(lat, lng, name, ms) {
     const m = L.marker([lat, lng], { icon: divIcon('mk-reveal', name), zIndexOffset: 950 }).addTo(map);
@@ -160,6 +171,7 @@ window.GameMap = (function () {
     markers.clear();
     revealMarkers.forEach((m) => map.removeLayer(m)); revealMarkers = [];
     spottedMarkers.forEach((m) => map.removeLayer(m)); spottedMarkers = [];
+    clearDowns();
     hasCentered = false;
   }
 
@@ -167,6 +179,6 @@ window.GameMap = (function () {
 
   return {
     init, setSelf, recenter, focus, setTeammates, setSignals, clearSignals,
-    setReveals, setSpotted, pulse, setZone, bearing, reset, invalidate,
+    setReveals, setSpotted, addDown, clearDowns, pulse, setZone, bearing, reset, invalidate,
   };
 })();

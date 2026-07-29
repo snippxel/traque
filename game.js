@@ -40,6 +40,7 @@ function defaultConfig() {
     radarUses: RADAR_USES, // nombre de radars par chasseur
     dispersionSeconds: 60, // phase de départ : les cachés fuient (timer/zone en pause)
     startRevealSeconds: 30, // au départ, le chasseur voit les cachés en direct N secondes
+    finalZoneMinutes: 3, // temps de jeu DANS la zone finale, une fois tous les paliers passés
     lastSurvivor: false,
   };
 }
@@ -198,6 +199,8 @@ class Room {
     c.radarUses = clamp(Math.round(num(cfg.radarUses, c.radarUses)), 0, 20);
     c.dispersionSeconds = clamp(Math.round(num(cfg.dispersionSeconds, c.dispersionSeconds)), 0, 600);
     c.startRevealSeconds = clamp(Math.round(num(cfg.startRevealSeconds, c.startRevealSeconds)), 0, c.dispersionSeconds);
+    // Au plus la moitié de la partie : les paliers doivent garder du temps
+    c.finalZoneMinutes = clamp(num(cfg.finalZoneMinutes, c.finalZoneMinutes), 0, c.durationMin / 2);
     c.lastSurvivor = !!cfg.lastSurvivor;
     if (c.finalRadius > c.startRadius) c.finalRadius = c.startRadius;
   }
@@ -226,12 +229,16 @@ class Room {
     const durationMs = this.config.durationMin * 60 * 1000;
     this.endTime = huntStart + durationMs;
 
-    // Paliers de rétrécissement : N événements répartis sur la CHASSE (après dispersion)
+    // Paliers de rétrécissement, répartis sur la chasse MOINS le temps de jeu
+    // final : sinon le dernier rétrécissement tombe pile à la fin et la zone
+    // finale n'est jamais jouée (la partie s'arrête au moment où elle se ferme).
     const { startRadius, finalRadius, shrinkSteps } = this.config;
+    const finalZoneMs = Math.min(this.config.finalZoneMinutes * 60 * 1000, durationMs / 2);
+    const shrinkWindowMs = Math.max(1000, durationMs - finalZoneMs);
     this.shrinkSchedule = [];
     for (let k = 1; k <= shrinkSteps; k++) {
       const radius = startRadius + ((finalRadius - startRadius) * k) / shrinkSteps;
-      const atTime = huntStart + (durationMs * k) / shrinkSteps;
+      const atTime = huntStart + (shrinkWindowMs * k) / shrinkSteps;
       this.shrinkSchedule.push({ atTime, radius });
     }
 

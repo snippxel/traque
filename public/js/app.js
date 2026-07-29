@@ -7,7 +7,16 @@
   const $ = (id) => document.getElementById(id);
   const SESSION_KEY = 'traque:session';
 
-  const socket = io({ transports: ['websocket', 'polling'] });
+  // Reconnexion agressive : en extérieur le réseau saute souvent, on veut
+  // revenir vite et sans limite de tentatives.
+  const socket = io({
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 3000,
+    timeout: 10000,
+  });
 
   const state = {
     code: null,
@@ -88,6 +97,31 @@
 
   socket.on('disconnect', () => { if (state.inGame) toast('Connexion perdue — reconnexion…', 'amber'); });
 
+  // ---------------------------------------------------------------- WATCHDOG
+  // Sur mobile, la connexion peut mourir SANS événement 'disconnect' (écran
+  // verrouillé, app en arrière-plan, changement de réseau) : le client croit
+  // être connecté mais ne reçoit plus rien. Résultat vécu en partie : positions
+  // des autres figées et timers bloqués à 00:00, jusqu'à un refresh manuel.
+  // On surveille donc le silence et on se resynchronise tout seul.
+  const SILENCE_MS = 6000; // > 3 ticks serveur (1.5 s) : le silence est anormal
+  function forceResync() {
+    if (!state.joined) return;
+    if (!socket.connected) socket.connect(); // le handler 'connect' fera le resume
+    else socket.emit('resync');
+  }
+  setInterval(() => {
+    if (!state.joined || !state.lastAt) return;
+    if (Date.now() - state.lastAt > SILENCE_MS) forceResync();
+  }, 2500);
+
+  // Retour au premier plan : on resynchronise immédiatement, sans attendre le
+  // watchdog, pour que l'écran soit à jour dès que le joueur regarde son téléphone.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') forceResync();
+  });
+  window.addEventListener('focus', forceResync);
+  window.addEventListener('online', forceResync);
+
   // ================================================================ ÉVÉNEMENTS
   socket.on('state', (s) => {
     state.last = s; state.lastAt = Date.now();
@@ -162,6 +196,19 @@
       const pts = [[hunter.lat, hunter.lng]];
       if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
       GameMap.focus(pts);
+    }
+  });
+
+  // Un coéquipier caché vient de tomber : alerte + lieu exact sur la carte.
+  socket.on('teammate:down', ({ name, reason, by, lat, lng, hidersLeft }) => {
+    const how = reason === 'zone' ? 'sorti de la zone' : (by ? 'pris par ' + by : 'capturé');
+    toast('⚠ ' + name + ' est tombé (' + how + ')', 'danger', 5000);
+    Sensors.vibrate([200, 100, 200]);
+    Sensors.ping(700); setTimeout(() => Sensors.ping(500), 180);
+    GameMap.addDown(lat, lng, name, 120000);
+    // hidersLeft vient du serveur : seul comptage fiable au moment de la capture
+    if (typeof hidersLeft === 'number') {
+      setTimeout(() => toast('Cachés restants : ' + hidersLeft, 'amber', 3500), 900);
     }
   });
 
@@ -243,6 +290,7 @@
       'cfg-revealIntervalMin': cfg.revealIntervalMin, 'cfg-graceSeconds': cfg.graceSeconds,
       'cfg-radarUses': cfg.radarUses,
       'cfg-dispersionSeconds': cfg.dispersionSeconds, 'cfg-startRevealSeconds': cfg.startRevealSeconds,
+      'cfg-finalZoneMinutes': cfg.finalZoneMinutes,
     };
     for (const [id, v] of Object.entries(map)) {
       const el = $(id);
@@ -620,7 +668,7 @@
   $('input-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
 
   // --- Lobby : config ---
-  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-dispersionSeconds', 'cfg-startRevealSeconds', 'cfg-lastSurvivor'];
+  const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-dispersionSeconds', 'cfg-startRevealSeconds', 'cfg-finalZoneMinutes', 'cfg-lastSurvivor'];
   let cfgTimer = null;
   let configDirty = false; // vrai entre une saisie locale et sa prise en compte serveur
   let configDirtyTimer = null;
@@ -635,6 +683,7 @@
       radarUses: +$('cfg-radarUses').value,
       dispersionSeconds: +$('cfg-dispersionSeconds').value,
       startRevealSeconds: +$('cfg-startRevealSeconds').value,
+      finalZoneMinutes: +$('cfg-finalZoneMinutes').value,
       lastSurvivor: $('cfg-lastSurvivor').checked,
     };
   }

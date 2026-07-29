@@ -380,6 +380,10 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .mk-reveal .mk-dot { background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: pulse 1s infinite; }
 .mk-hunter .mk-dot { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 12px var(--amber); animation: pulse 1s infinite; }
 .mk-hunter .mk-label { color: var(--amber); }
+/* Lieu où un coéquipier caché est tombé : croix rouge sombre, statique */
+.mk-down .mk-dot { background: transparent; border: 2px solid var(--danger); border-radius: 0;
+  transform: rotate(45deg); box-shadow: 0 0 8px rgba(255,47,69,.6); }
+.mk-down .mk-label { color: var(--danger); }
 .mk-label { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   font-size: 10px; color: var(--ink); background: rgba(5,9,12,.7); padding: 1px 5px; letter-spacing: 1px; }
 .mk-accuracy { border-radius: 50%; background: rgba(77,255,161,0.08); border: 1px solid rgba(77,255,161,0.25); }

@@ -131,8 +131,10 @@ async function scenarioShrink() {
   const c = await emit(host, 'createRoom', { name: 'H' });
   const jg = await emit(g, 'joinRoom', { code: c.code, name: 'G' });
   host.emit('assignRoles', { mode: 'manual', assignments: { [c.playerId]: 'hunter', [jg.playerId]: 'hider' } });
-  // 1 min / 4 paliers -> rétrécissements à 15/30/45/60 s ; rayons 800/600/400/200
-  host.emit('updateConfig', { config: CFG({ startRadius: 1000, finalRadius: 200, durationMin: 1, shrinkSteps: 4 }) });
+  // finalZoneMinutes: 0 -> les paliers occupent TOUTE la durée : on teste ici la
+  // répartition pure. (Le temps de jeu dans la zone finale est couvert par
+  // liveplay.test.js.) 1 min / 4 paliers -> 15/30/45/60 s ; rayons 800/600/400/200
+  host.emit('updateConfig', { config: CFG({ startRadius: 1000, finalRadius: 200, durationMin: 1, shrinkSteps: 4, finalZoneMinutes: 0 }) });
   await wait(200);
   host.emit('pos', CENTER); g.emit('pos', NEAR);
   await wait(300);

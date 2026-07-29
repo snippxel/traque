@@ -21,7 +21,14 @@ const {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+// pings rapprochés : sur mobile une connexion peut mourir sans que rien ne le
+// signale. Des pings courts détectent la coupure en ~12 s au lieu de ~45 s,
+// ce qui déclenche la reconnexion (et donc le resume) bien plus tôt.
+const io = new Server(server, {
+  cors: { origin: '*' },
+  pingInterval: 8000,
+  pingTimeout: 12000,
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: gm.rooms.size }));
@@ -150,6 +157,9 @@ function tickGame(room, now) {
     } else if (outside && p.outOfZoneSince != null) {
       // Toujours dehors : conversion si le délai de grâce est dépassé
       if (now - p.outOfZoneSince >= room.config.graceSeconds * 1000) {
+        // On prévient les cachés AVANT la conversion : après, le joueur est
+        // chasseur et ne fait plus partie de leur équipe.
+        notifyHidersOfCapture(room, p, 'zone', null);
         room.convert(p, 'zone');
         const sock = socketOfPlayer(p);
         if (sock) sock.emit('converted', { reason: 'zone' });
@@ -158,6 +168,28 @@ function tickGame(room, now) {
   }
 
   room.checkEnd(now);
+}
+
+// Un caché vient de tomber : on prévient ses ex-coéquipiers encore en course,
+// avec le lieu exact de la capture — c'est une information tactique (zone
+// dangereuse, chasseur dans le secteur) et un vrai moment de jeu.
+function notifyHidersOfCapture(room, victim, reason, byName) {
+  const pos = victim.pos ? { lat: victim.pos.lat, lng: victim.pos.lng } : null;
+  // Comptage fiable : on exclut toujours la victime explicitement. Selon la
+  // cause, elle est déjà convertie (scan) ou pas encore (hors-zone) — sans ça,
+  // le nombre de cachés restants serait faux dans l'un des deux cas.
+  let hidersLeft = 0;
+  for (const p of room.players.values()) {
+    if (p.role === 'hider' && p.id !== victim.id) hidersLeft++;
+  }
+  const payload = {
+    name: victim.name, reason, by: byName || null,
+    lat: pos && pos.lat, lng: pos && pos.lng, hidersLeft,
+  };
+  for (const p of room.players.values()) {
+    if (p.role !== 'hider' || p.id === victim.id) continue;
+    if (p.connected && p.socketId) io.to(p.socketId).emit('teammate:down', payload);
+  }
 }
 
 function flashHunters(room, hider) {
@@ -266,6 +298,21 @@ io.on('connection', (socket) => {
     emitStateToRoom(room);
   });
 
+  // --- Resynchronisation immédiate ---
+  // Le client la demande au retour au premier plan ou s'il détecte un silence
+  // anormal : sur mobile la connexion peut mourir sans événement 'disconnect',
+  // laissant l'écran figé (positions et timers bloqués) jusqu'à un refresh manuel.
+  socket.on('resync', () => {
+    const ctx = ctxOf(socket);
+    if (!ctx) return;
+    try {
+      const s = ctx.room.stateFor(ctx.playerId);
+      if (s) socket.emit('state', s);
+    } catch (err) {
+      console.error('[resync]', err);
+    }
+  });
+
   // --- Position GPS ---
   socket.on('pos', (pos) => {
     const ctx = ctxOf(socket);
@@ -283,6 +330,8 @@ io.on('connection', (socket) => {
     // Notifie la cible
     const sock = socketOfPlayer(res.target);
     if (sock) sock.emit('converted', { reason: 'scan', by: res.hunter.name });
+    // ...et ses ex-coéquipiers cachés (avec le lieu de la capture)
+    notifyHidersOfCapture(ctx.room, res.target, 'scan', res.hunter.name);
     ctx.room.checkEnd();
     emitStateToRoom(ctx.room);
   });
