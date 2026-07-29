@@ -1013,21 +1013,39 @@
   // fiable sur iOS : en paysage notamment, les unités CSS peuvent dépasser
   // l'écran et faire disparaître le HUD (haut) et la barre d'actions (bas).
   function setAppHeight() {
-    // Garde-fou : innerHeight peut valoir 0 (onglet en arrière-plan, rotation en
-    // cours). Écrire 0px écraserait le fallback CSS et ferait disparaître toute
-    // l'interface — on ignore alors la mesure et on garde la précédente.
-    const h = window.innerHeight;
+    // visualViewport donne la hauteur RÉELLEMENT visible. C'est indispensable :
+    // sur Samsung Internet et iOS, la barre d'URL recouvre le contenu sans que
+    // innerHeight ne change, ce qui poussait le HUD (haut) et la barre d'actions
+    // (bas) hors de l'écran — on ne voyait plus que la carte.
+    const vv = window.visualViewport;
+    const h = vv && vv.height ? vv.height : window.innerHeight;
+    // Garde-fou : une mesure nulle ou absurde écraserait le fallback CSS et
+    // ferait disparaître toute l'interface. On garde alors la précédente.
     if (!h || h < 200) return;
-    document.documentElement.style.setProperty('--app-h', h + 'px');
+    document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
     GameMap.invalidate(); // la carte doit se remesurer après un changement de taille
   }
   setAppHeight();
   window.addEventListener('resize', setAppHeight);
+  if (window.visualViewport) {
+    // Ces deux événements couvrent l'apparition/disparition des barres du
+    // navigateur, que 'resize' seul ne signale pas toujours sur Android.
+    window.visualViewport.addEventListener('resize', setAppHeight);
+    window.visualViewport.addEventListener('scroll', setAppHeight);
+  }
   window.addEventListener('orientationchange', () => {
-    // iOS met à jour innerHeight APRÈS la rotation : on remesure un peu plus tard
+    // La hauteur n'est mise à jour qu'APRÈS la rotation : on remesure plus tard
     setTimeout(setAppHeight, 100);
     setTimeout(setAppHeight, 500);
   });
+  // Filet de sécurité : si une barre apparaît sans déclencher aucun événement,
+  // on rattrape l'écart en arrière-plan (comparaison, donc aucun coût visuel).
+  setInterval(() => {
+    const vv = window.visualViewport;
+    const h = Math.round(vv && vv.height ? vv.height : window.innerHeight);
+    const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--app-h'), 10);
+    if (h >= 200 && Math.abs(h - cur) > 4) setAppHeight();
+  }, 1000);
 
   // Wake lock auto-réacquisition
   Sensors.initWakeLockAutoReacquire();
