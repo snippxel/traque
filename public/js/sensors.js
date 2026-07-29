@@ -82,13 +82,15 @@ window.Sensors = (function () {
 
   // -------------------- Wake Lock --------------------
   let wakeLock = null;
+  // Retourne true si l'écran est effectivement maintenu allumé. L'appelant peut
+  // ainsi prévenir le joueur : écran verrouillé = GPS coupé = position figée.
   async function requestWakeLock() {
     try {
-      if ('wakeLock' in navigator) {
-        wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => { wakeLock = null; });
-      }
-    } catch (_) { /* l'API se libère parfois seule, on redemande au retour */ }
+      if (!('wakeLock' in navigator)) return false;
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+      return true;
+    } catch (_) { return false; } // l'API se libère parfois seule, on redemande au retour
   }
   function initWakeLockAutoReacquire() {
     document.addEventListener('visibilitychange', () => {

@@ -298,6 +298,17 @@ io.on('connection', (socket) => {
     emitStateToRoom(room);
   });
 
+  // --- Rejouer (hôte, après la fin) ---
+  socket.on('restartGame', (_d, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx) return ack(cb, { ok: false, error: 'Hors partie.' });
+    if (!ctx.room.isHost(ctx.playerId)) return ack(cb, { ok: false, error: 'Réservé à l’hôte.' });
+    if (ctx.room.status !== 'ended') return ack(cb, { ok: false, error: 'La partie n’est pas terminée.' });
+    ctx.room.resetForNewGame();
+    ack(cb, { ok: true });
+    emitStateToRoom(ctx.room);
+  });
+
   // --- Resynchronisation immédiate ---
   // Le client la demande au retour au premier plan ou s'il détecte un silence
   // anormal : sur mobile la connexion peut mourir sans événement 'disconnect',

@@ -177,8 +177,36 @@ window.GameMap = (function () {
 
   function invalidate() { if (map) setTimeout(() => map.invalidateSize(), 60); }
 
+  // --- Aperçu de la zone dans le lobby (carte indépendante de celle du jeu) ---
+  // Permet à l'hôte de VOIR le terrain avant de lancer : routes passantes, plans
+  // d'eau... c'est ce que la case de sécurité lui demande de vérifier.
+  let pMap = null, pCircle = null, pMarker = null;
+  function previewInit() {
+    if (pMap) return pMap;
+    pMap = L.map('lobby-map', { zoomControl: false, attributionControl: false, dragging: true, tap: true });
+    pMap.setView([48.8566, 2.3522], 15);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 }).addTo(pMap);
+    return pMap;
+  }
+  function previewUpdate(pos, radius) {
+    if (!pos) return;
+    previewInit();
+    const c = [pos.lat, pos.lng];
+    if (!pCircle) {
+      pCircle = L.circle(c, { radius, color: '#4dffa1', weight: 2, fillColor: '#4dffa1', fillOpacity: 0.06 }).addTo(pMap);
+      pMarker = L.marker(c, { icon: divIcon('mk-self hider', 'DÉPART') }).addTo(pMap);
+    } else {
+      pCircle.setLatLng(c); pCircle.setRadius(radius);
+      pMarker.setLatLng(c);
+    }
+    try { pMap.fitBounds(pCircle.getBounds().pad(0.15)); } catch (_) {}
+    setTimeout(() => pMap.invalidateSize(), 60);
+  }
+  function previewInvalidate() { if (pMap) setTimeout(() => pMap.invalidateSize(), 60); }
+
   return {
     init, setSelf, recenter, focus, setTeammates, setSignals, clearSignals,
     setReveals, setSpotted, addDown, clearDowns, pulse, setZone, bearing, reset, invalidate,
+    previewUpdate, previewInvalidate,
   };
 })();

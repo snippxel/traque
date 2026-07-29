@@ -52,6 +52,7 @@
         <button id="btn-join" class="btn">[ REJOINDRE ]</button>
       </div>
       <p id="home-error" class="err-line"></p>
+      <button id="btn-install" class="btn btn-ghost btn-sm hidden">[ INSTALLER L'APP ]</button>
       <p class="foot-note">Aucun compte. Aucune donnée stockée. Une partie = un objet en mémoire.</p>
     </div>
   </section>
@@ -64,12 +65,22 @@
           <div class="mini-label">CODE DE PARTIE</div>
           <div id="lobby-code" class="lobby-code">-----</div>
         </div>
-        <button id="btn-copy-code" class="btn btn-ghost btn-sm">[ COPIER ]</button>
+        <div class="lobby-actions">
+          <button id="btn-copy-code" class="btn btn-ghost btn-sm">[ COPIER ]</button>
+          <button id="btn-share" class="btn btn-ghost btn-sm">[ PARTAGER ]</button>
+        </div>
       </header>
 
       <div class="panel bracket">
         <div class="mini-label">OPÉRATEURS CONNECTÉS <span id="roster-count" class="tag">0</span></div>
         <ul id="roster" class="roster"></ul>
+      </div>
+
+      <!-- Aperçu de la zone (hôte) : vérifier routes / plans d'eau AVANT de lancer -->
+      <div id="zone-preview-panel" class="panel bracket hidden">
+        <div class="mini-label">APERÇU DE LA ZONE <span id="preview-radius" class="tag">—</span></div>
+        <div id="lobby-map" class="lobby-map"></div>
+        <div id="preview-hint" class="preview-hint">Acquisition GPS…</div>
       </div>
 
       <!-- Panneau HÔTE -->
@@ -158,8 +169,15 @@
       <div id="sb-note" class="sb-note"></div>
     </div>
 
-    <!-- Badge GPS -->
+    <!-- Badge GPS + état de connexion -->
     <div id="gps-badge" class="gps-badge">GPS <span id="gps-acc">--</span></div>
+    <div id="net-badge" class="net-badge" title="État de la liaison"><span class="net-dot"></span><span id="net-text">LIÉ</span></div>
+
+    <!-- Liste des joueurs (noms + rôles, aucune position) -->
+    <div id="players-panel" class="players-panel hidden">
+      <div class="pp-head">OPÉRATEURS <button id="pp-close" class="pp-close">✕</button></div>
+      <ul id="pp-list" class="pp-list"></ul>
+    </div>
 
     <!-- Boussole (cachés) -->
     <div id="compass" class="compass hidden">
@@ -191,7 +209,8 @@
       <button id="btn-code" class="act hidden">MON CODE</button>
       <button id="btn-scan" class="act hidden">ÉLIMINER</button>
       <button id="btn-radar" class="act hidden">RADAR</button>
-      <button id="btn-chat" class="act">CHAT</button>
+      <button id="btn-chat" class="act">CHAT<span id="chat-badge" class="chat-badge hidden">0</span></button>
+      <button id="btn-players" class="act">ÉQUIPES</button>
     </div>
 
     <!-- Alerte hors-zone plein écran -->
@@ -234,7 +253,8 @@
           </table>
         </div>
       </div>
-      <button id="btn-home" class="btn btn-primary">[ RETOUR ]</button>
+      <button id="btn-replay" class="btn btn-primary hidden">[ REJOUER — MÊMES JOUEURS ]</button>
+      <button id="btn-home" class="btn btn-ghost">[ RETOUR ]</button>
     </div>
   </section>
 
@@ -270,6 +290,31 @@
         <button type="submit" class="btn btn-sm">[ ENVOYER ]</button>
       </form>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
+    </div>
+  </div>
+
+  <!-- Confirmation générique (quitter une partie, etc.) -->
+  <div id="modal-confirm" class="modal hidden">
+    <div class="modal-card bracket">
+      <div class="modal-title" id="confirm-title">CONFIRMER</div>
+      <div class="modal-sub" id="confirm-text">Es-tu sûr ?</div>
+      <button id="confirm-yes" class="btn btn-primary">[ CONFIRMER ]</button>
+      <button id="confirm-no" class="btn btn-ghost btn-sm">[ ANNULER ]</button>
+    </div>
+  </div>
+
+  <!-- Installation PWA (plein écran, sans barres de navigateur) -->
+  <div id="modal-install" class="modal hidden">
+    <div class="modal-card bracket">
+      <div class="modal-title">INSTALLER TRAQUE</div>
+      <div class="modal-sub">En plein écran, sans les barres du navigateur — plus stable pendant une partie.</div>
+      <div id="install-ios" class="install-steps hidden">
+        <p>Sur iPhone (Safari) :</p>
+        <p>1. Appuie sur <b>Partager</b> <span class="ico">⬆︎</span></p>
+        <p>2. Choisis <b>Sur l'écran d'accueil</b></p>
+      </div>
+      <button id="install-go" class="btn btn-primary hidden">[ INSTALLER ]</button>
+      <button class="btn btn-ghost btn-sm modal-close" data-close="modal-install">[ FERMER ]</button>
     </div>
   </div>
 

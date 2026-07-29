@@ -110,9 +110,23 @@
     else socket.emit('resync');
   }
   setInterval(() => {
+    updateNetBadge();
     if (!state.joined || !state.lastAt) return;
     if (Date.now() - state.lastAt > SILENCE_MS) forceResync();
   }, 2500);
+
+  // Indicateur de liaison : le joueur voit en un coup d'œil si ses données sont
+  // fraîches, plutôt que de se demander si l'écran est figé.
+  function updateNetBadge() {
+    const el = $('net-badge');
+    if (!el) return;
+    const silence = state.lastAt ? Date.now() - state.lastAt : Infinity;
+    let cls = '', txt = 'LIÉ';
+    if (!socket.connected) { cls = 'down'; txt = 'HORS LIGNE'; }
+    else if (silence > SILENCE_MS) { cls = 'warn'; txt = 'RESYNC…'; }
+    el.className = 'net-badge' + (cls ? ' ' + cls : '');
+    $('net-text').textContent = txt;
+  }
 
   // Retour au premier plan : on resynchronise immédiatement, sans attendre le
   // watchdog, pour que l'écran soit à jour dès que le joueur regarde son téléphone.
@@ -212,8 +226,19 @@
     }
   });
 
+  // Compteur de messages non lus (remis à zéro à l'ouverture du chat)
+  let unreadChat = 0;
+  function updateChatBadge() {
+    const b = $('chat-badge');
+    b.textContent = unreadChat > 9 ? '9+' : String(unreadChat);
+    b.classList.toggle('hidden', unreadChat === 0);
+  }
+
   // Chat global (texte libre) : reçu par tous
   socket.on('chat', ({ from, text }) => {
+    if ($('modal-chat').classList.contains('hidden') && from !== state.name) {
+      unreadChat++; updateChatBadge();
+    }
     addChatMessage(from, text);
     const log = $('chat-log');
     const b = document.createElement('div');
@@ -241,6 +266,13 @@
 
   // ================================================================ ROUTAGE
   function route(s) {
+    // Retour au lobby après une partie (Rejouer) : on efface la carte précédente
+    if (s.status === 'lobby' && state.wasPlaying) {
+      state.wasPlaying = false;
+      GameMap.reset();
+      teardownGame();
+    }
+    if (s.status === 'playing' || s.status === 'ended') state.wasPlaying = true;
     if (s.status === 'lobby') { renderLobby(s); show('screen-lobby'); }
     else if (s.status === 'playing') { enterGame(s); renderGame(s); }
     else if (s.status === 'ended') { renderEnd(s); show('screen-end'); teardownGame(); }
@@ -266,6 +298,9 @@
     if (s.isHost) {
       $('host-panel').classList.remove('hidden');
       $('guest-panel').classList.add('hidden');
+      // Aperçu de la zone : l'hôte doit pouvoir vérifier le terrain avant de lancer
+      $('zone-preview-panel').classList.remove('hidden');
+      updateZonePreview(s.config);
       fillConfig(s.config);
       renderManual(s);
       // mode d'attribution
@@ -275,9 +310,26 @@
       $('manual-assign').classList.toggle('hidden', s.roleMode !== 'manual');
     } else {
       $('host-panel').classList.add('hidden');
+      $('zone-preview-panel').classList.add('hidden');
       $('guest-panel').classList.remove('hidden');
       $('guest-role').textContent = s.you.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ';
     }
+  }
+
+  // Aperçu de la zone dans le lobby, centré sur la position de l'hôte (c'est
+  // exactement là que la zone sera créée au lancement).
+  function updateZonePreview(cfg) {
+    const hint = $('preview-hint');
+    if (!state.selfPos) {
+      hint.textContent = 'Acquisition GPS… la zone se centrera sur ta position au lancement.';
+      hint.className = 'preview-hint';
+      return;
+    }
+    const radius = (cfg && cfg.startRadius) || 500;
+    $('preview-radius').textContent = radius + ' m';
+    hint.textContent = 'Vérifie : routes passantes, plans d’eau, propriétés privées.';
+    hint.className = 'preview-hint ok';
+    GameMap.previewUpdate(state.selfPos, radius);
   }
 
   function fillConfig(cfg) {
@@ -327,7 +379,11 @@
     show('screen-game');
     GameMap.init();
     GameMap.invalidate();
-    Sensors.requestWakeLock();
+    // Si l'écran peut se verrouiller, le GPS s'arrête et la position se fige :
+    // mieux vaut prévenir le joueur une fois au début.
+    Sensors.requestWakeLock().then((ok) => {
+      if (!ok) toast('⚠ L’écran peut se verrouiller : garde l’app ouverte, sinon ta position se fige.', 'amber', 8000);
+    });
     Sensors.ensureAudio();
     if (s.you.role === 'hider') startCompass();
     startHudTicker();
@@ -402,6 +458,7 @@
 
     // Interface de départ
     updateStartBanner();
+    renderPlayersPanel(); // liste des joueurs si elle est ouverte
 
     updateTimers();
   }
@@ -568,12 +625,17 @@
     $('btn-radar').classList.remove('locked');
     $('modal-chat').classList.add('hidden');
     $('chat-messages').innerHTML = '';
+    $('players-panel').classList.add('hidden');
+    $('modal-confirm').classList.add('hidden');
+    unreadChat = 0; updateChatBadge();
   }
 
   // ---------------------------------------------------------------- FIN
   function renderEnd(s) {
     const r = s.result;
     if (!r) return;
+    // Seul l'hôte peut relancer une partie avec les mêmes joueurs
+    $('btn-replay').classList.toggle('hidden', !s.isHost);
     const banner = $('end-banner');
     banner.className = 'end-banner ' + r.winner;
     banner.textContent = r.winner === 'hunters' ? 'VICTOIRE DES CHASSEURS' : 'VICTOIRE DES CACHÉS';
@@ -732,7 +794,36 @@
     const code = $('lobby-code').textContent;
     navigator.clipboard && navigator.clipboard.writeText(code).then(() => toast('Code copié : ' + code)).catch(() => {});
   };
-  $('btn-leave-lobby').onclick = leaveToHome;
+
+  // Partage : un lien avec le code déjà rempli, plus besoin de le dicter
+  $('btn-share').onclick = async () => {
+    const code = $('lobby-code').textContent;
+    const url = location.origin + '/?c=' + code;
+    const data = { title: 'TRAQUE', text: 'Rejoins ma partie de Traque (code ' + code + ')', url };
+    try {
+      if (navigator.share) { await navigator.share(data); return; }
+    } catch (_) { return; } // partage annulé par l'utilisateur : on ne fait rien
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Lien copié : ' + url, '', 4500);
+    } catch (_) { toast('Lien : ' + url, '', 5000); }
+  };
+  $('btn-leave-lobby').onclick = () => confirmAction('QUITTER LA PARTIE', 'Tu vas libérer ta place. Les autres continuent sans toi.', leaveToHome);
+
+  // --- Confirmation générique ---
+  let confirmCb = null;
+  function confirmAction(title, text, onYes) {
+    $('confirm-title').textContent = title;
+    $('confirm-text').textContent = text;
+    confirmCb = onYes;
+    $('modal-confirm').classList.remove('hidden');
+  }
+  $('confirm-yes').onclick = () => {
+    $('modal-confirm').classList.add('hidden');
+    const cb = confirmCb; confirmCb = null;
+    if (cb) cb();
+  };
+  $('confirm-no').onclick = () => { $('modal-confirm').classList.add('hidden'); confirmCb = null; };
 
   // --- Jeu : actions ---
   $('btn-code').onclick = () => {
@@ -761,6 +852,7 @@
     });
   };
   $('btn-chat').onclick = () => {
+    unreadChat = 0; updateChatBadge();
     $('modal-chat').classList.remove('hidden');
     const box = $('chat-messages');
     if (box && !box.children.length) {
@@ -811,6 +903,37 @@
 
   // --- Fin ---
   $('btn-home').onclick = leaveToHome;
+  $('btn-replay').onclick = () => {
+    socket.emit('restartGame', {}, (res) => {
+      if (!res || !res.ok) toast((res && res.error) || 'Impossible de relancer.', 'danger');
+      else toast('Nouvelle partie : réattribue les rôles et relance.', '', 5000);
+    });
+  };
+
+  // --- Liste des joueurs (noms et rôles uniquement, aucune position) ---
+  $('btn-players').onclick = () => {
+    $('players-panel').classList.toggle('hidden');
+    renderPlayersPanel();
+  };
+  $('pp-close').onclick = () => $('players-panel').classList.add('hidden');
+  function renderPlayersPanel() {
+    const panel = $('players-panel');
+    if (panel.classList.contains('hidden')) return;
+    const s = state.last;
+    if (!s || !s.roster) return;
+    const list = $('pp-list');
+    list.innerHTML = '';
+    const sorted = [...s.roster].sort((a, b) => (a.role === b.role ? 0 : a.role === 'hider' ? -1 : 1));
+    sorted.forEach((p) => {
+      const li = document.createElement('li');
+      if (!p.connected) li.classList.add('off');
+      li.innerHTML =
+        '<span class="pp-name">' + escapeHtml(p.name) + (p.isMe ? ' <span class="pp-me">(toi)</span>' : '') + '</span>' +
+        (p.connected ? '' : '<span class="pp-me">hors ligne</span>') +
+        '<span class="pp-role ' + p.role + '">' + (p.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ') + '</span>';
+      list.appendChild(li);
+    });
+  }
 
   function leaveToHome() {
     socket.emit('leave'); // départ volontaire : on libère vraiment la place
@@ -846,6 +969,45 @@
     Sensors.ensureAudio();
     document.removeEventListener('pointerdown', unlock);
   }, { once: true });
+
+  // --- Code de partie passé dans l'URL (lien de partage) ---
+  try {
+    const c = new URLSearchParams(location.search).get('c');
+    if (c) {
+      $('input-code').value = c.toUpperCase().slice(0, 5);
+      history.replaceState(null, '', location.pathname); // URL propre ensuite
+    }
+  } catch (_) {}
+
+  // --- Installation PWA : plein écran, sans barres de navigateur ---
+  let deferredInstall = null;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    if (!isStandalone) $('btn-install').classList.remove('hidden');
+  });
+  if (isIOS && !isStandalone) $('btn-install').classList.remove('hidden');
+  $('btn-install').onclick = () => {
+    if (deferredInstall) {
+      $('install-go').classList.remove('hidden');
+      $('install-ios').classList.add('hidden');
+    } else {
+      // iOS n'expose aucune API d'installation : on explique la manipulation
+      $('install-go').classList.add('hidden');
+      $('install-ios').classList.remove('hidden');
+    }
+    $('modal-install').classList.remove('hidden');
+  };
+  $('install-go').onclick = async () => {
+    if (!deferredInstall) return;
+    $('modal-install').classList.add('hidden');
+    deferredInstall.prompt();
+    try { await deferredInstall.userChoice; } catch (_) {}
+    deferredInstall = null;
+    $('btn-install').classList.add('hidden');
+  };
 
   // Hauteur réelle de la zone visible. window.innerHeight est la seule mesure
   // fiable sur iOS : en paysage notamment, les unités CSS peuvent dépasser

@@ -319,6 +319,46 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
   font-family: var(--mono); font-size: 12px; letter-spacing: 2px; padding: 6px 14px; white-space: nowrap; }
 .spot-banner span { color: var(--white); }
 
+/* Aperçu de la zone dans le lobby */
+.lobby-actions { display: flex; gap: 6px; }
+.lobby-map { height: 190px; border: 1px solid var(--line); background: #04070b; margin-top: 8px; }
+.preview-hint { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; margin-top: 8px; }
+.preview-hint.ok { color: var(--phos-dim); }
+
+/* État de la liaison réseau */
+.net-badge { position: absolute; top: 118px; right: 10px; z-index: 20; display: flex; align-items: center; gap: 5px;
+  background: rgba(5,9,12,.8); border: 1px solid var(--line); padding: 3px 7px; font-size: 9px; letter-spacing: 1px; color: var(--ink-dim); }
+.net-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--phos); box-shadow: var(--glow); }
+.net-badge.warn { border-color: var(--amber-dim); color: var(--amber); }
+.net-badge.warn .net-dot { background: var(--amber); box-shadow: var(--glow-amber); animation: pulse .8s infinite; }
+.net-badge.down { border-color: var(--danger-dim); color: var(--danger); }
+.net-badge.down .net-dot { background: var(--danger); box-shadow: 0 0 6px var(--danger); animation: pulse .6s infinite; }
+
+/* Badge de messages non lus sur le bouton CHAT */
+#btn-chat { position: relative; }
+.chat-badge { position: absolute; top: 6px; right: 50%; transform: translateX(22px); min-width: 16px; height: 16px;
+  background: var(--danger); color: #fff; border-radius: 8px; font-size: 10px; line-height: 16px; padding: 0 4px;
+  font-family: var(--mono); box-shadow: 0 0 8px var(--danger); }
+
+/* Panneau liste des joueurs */
+.players-panel { position: absolute; top: 118px; left: 10px; right: 10px; z-index: 30; max-height: 55%;
+  background: rgba(5,9,12,.95); border: 1px solid var(--line); backdrop-filter: blur(3px); display: flex; flex-direction: column; }
+.pp-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); }
+.pp-close { background: transparent; border: 0; color: var(--ink-dim); font-size: 15px; cursor: pointer; padding: 0 4px; }
+.pp-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; display: grid; gap: 4px; }
+.pp-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-2); font-size: 12px; }
+.pp-list .pp-name { flex: 1; color: var(--white); letter-spacing: .5px; }
+.pp-list li.off .pp-name { color: var(--ink-dim); text-decoration: line-through; }
+.pp-list .pp-role { font-size: 9px; letter-spacing: 1px; padding: 2px 6px; border: 1px solid; }
+.pp-role.hunter { color: var(--amber); border-color: var(--amber-dim); }
+.pp-role.hider { color: var(--phos); border-color: var(--phos-dim); }
+.pp-me { font-size: 9px; color: var(--amber); }
+
+.install-steps { text-align: left; font-size: 13px; color: var(--ink); line-height: 1.6; margin-bottom: 14px; }
+.install-steps p { margin: 4px 0; }
+.install-steps .ico { color: var(--phos); }
+
 /* ============================== FIN ============================== */
 .end-wrap { max-width: 640px; margin: 0 auto; padding: 6vh 18px 60px; display: grid; gap: 18px; }
 .end-banner { font-family: var(--disp); font-weight: 700; font-size: 34px; letter-spacing: 4px; text-align: center; padding: 18px; border: 1px solid var(--line); }

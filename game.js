@@ -424,6 +424,36 @@ class Room {
     return { hunters, hiders, total: this.players.size };
   }
 
+  // --- Rejouer : on remet la salle en lobby sans perdre les joueurs ---------
+  // Le code de partie et la configuration sont conservés : personne n'a besoin
+  // de re-rejoindre, l'hôte n'a qu'à réattribuer les rôles et relancer.
+  resetForNewGame() {
+    this.status = 'lobby';
+    this.center = null;
+    this.startTime = null;
+    this.dispersionEndsAt = null;
+    this.startRevealEndsAt = null;
+    this.endTime = null;
+    this.shrinkSchedule = [];
+    this.lastReveal.clear();
+    this.tempReveals = [];
+    this.counterReveals = [];
+    this.shrinkWarned.clear();
+    this.nextRevealAt = null;
+    this.result = null;
+    for (const p of this.players.values()) {
+      p.role = 'hider';
+      p.startRole = null;
+      p.captures = 0;
+      p.distance = 0;
+      p.capturedAt = null;
+      p.outOfZoneSince = null;
+      p.radarUsesLeft = this.config.radarUses;
+      p.lastPosForDistance = null;
+      p.qrToken = randomToken(24); // nouveau QR : les anciens scans ne valent plus
+    }
+  }
+
   // --- Fin de partie -------------------------------------------------------
   checkEnd(now = Date.now()) {
     if (this.status !== 'playing') return null;
@@ -532,6 +562,16 @@ class Room {
     base.nextRevealAt = this.nextRevealAt;
 
     const startLive = now < this.startRevealEndsAt; // fenêtre de visibilité live au départ
+
+    // Liste des joueurs en jeu : noms, rôle actuel et connexion UNIQUEMENT.
+    // Aucune coordonnée ici — la visibilité asymétrique reste entièrement gérée
+    // par teammates/signals/reveals plus bas.
+    base.roster = [...this.players.values()].map((p) => ({
+      name: p.name,
+      role: p.role,
+      connected: p.connected,
+      isMe: p.id === me.id,
+    }));
 
     // Coéquipiers en temps réel (même rôle que moi)
     const teammates = [];

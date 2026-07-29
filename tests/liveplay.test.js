@@ -153,7 +153,59 @@ async function scenarioTeammateDownByZone() {
   host.close(); a.close(); b.close();
 }
 
+// ---------------------------------------------------------------- 4
+async function scenarioReplay() {
+  console.log('# Rejouer : nouvelle partie avec les mêmes joueurs');
+  const host = connect(), g = connect();
+  await ready(host); await ready(g);
+  const c = await emit(host, 'createRoom', { name: 'HOTE' });
+  const jg = await emit(g, 'joinRoom', { code: c.code, name: 'JOUEUR' });
+  host.emit('assignRoles', { mode: 'manual', assignments: { [c.playerId]: 'hunter', [jg.playerId]: 'hider' } });
+  host.emit('updateConfig', { config: CFG({ startRadius: 300, finalRadius: 100 }) });
+  await wait(200);
+  host.emit('pos', CENTER); g.emit('pos', NEAR);
+  await wait(300);
+  await emit(host, 'startGame', { safetyChecked: true });
+  await wait(400);
+
+  // Rejouer refusé tant que la partie n'est pas finie
+  const tooEarly = await emit(host, 'restartGame', {});
+  assert(!tooEarly.ok, 'Rejouer refusé pendant une partie en cours');
+
+  // On termine : le chasseur capture l'unique caché
+  await emit(host, 'scanQR', { token: jg.qrToken });
+  const ended = await nextState(host, (s) => s.status === 'ended');
+  assert(ended.status === 'ended', 'Partie terminée');
+
+  // Un non-hôte ne peut pas relancer
+  const notHost = await emit(g, 'restartGame', {});
+  assert(!notHost.ok && /hôte/i.test(notHost.error || ''), 'Rejouer réservé à l’hôte (vérifié serveur)');
+
+  // L'hôte relance : retour au lobby, mêmes joueurs, même code
+  const rr = await emit(host, 'restartGame', {});
+  assert(rr.ok, 'L’hôte peut relancer');
+  const lobby = await nextState(host, (s) => s.status === 'lobby');
+  assert(lobby.code === c.code, 'Même code de partie : personne n’a besoin de re-rejoindre');
+  assert(lobby.roster.length === 2, 'Les deux joueurs sont toujours là');
+  assert(lobby.counts.hiders === 2, 'Tout le monde repasse caché (rôles à réattribuer)');
+  assert(lobby.you.radarUsesLeft === lobby.config.radarUses, 'Radars réinitialisés');
+
+  // Le joueur invité voit aussi le lobby, avec un NOUVEAU token QR
+  const gLobby = await nextState(g, (s) => s.status === 'lobby');
+  assert(gLobby.you.qrToken !== jg.qrToken, 'Nouveau QR : les anciens scans ne valent plus');
+
+  // Et on peut relancer une vraie partie derrière
+  host.emit('assignRoles', { mode: 'manual', assignments: { [c.playerId]: 'hunter', [jg.playerId]: 'hider' } });
+  await wait(300);
+  host.emit('pos', CENTER); g.emit('pos', NEAR);
+  await wait(300);
+  const again = await emit(host, 'startGame', { safetyChecked: true });
+  assert(again.ok, 'La partie suivante se lance normalement');
+  host.close(); g.close();
+}
+
 (async () => {
+  await scenarioReplay();
   await scenarioResync();
   await scenarioTeammateDown();
   await scenarioTeammateDownByZone();
