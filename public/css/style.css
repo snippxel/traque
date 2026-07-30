@@ -203,7 +203,10 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 /* ============================== LOBBY ============================== */
 /* Le bas doit pouvoir défiler AU-DESSUS de la barre de lancement collée,
    sinon le dernier panneau reste définitivement à moitié caché dessous. */
-.lobby-wrap { max-width: 520px; margin: 0 auto; padding: 20px 16px 24px; display: grid; gap: 14px; }
+/* La barre de lancement est collée en bas et fait ~200 px : sans cette réserve,
+   les derniers réglages restent définitivement cachés dessous, on ne peut pas
+   les faire défiler au-dessus. */
+.lobby-wrap { max-width: 520px; margin: 0 auto; padding: 20px 16px 220px; display: grid; gap: 14px; }
 /* Les enfants d'une grille ont min-width: auto : un panneau dont le contenu est
    plus large que la colonne DÉBORDE au lieu de se contraindre. C'est ce qui
    faisait sortir les boutons de l'en-tête et couper le badge « CHASSEUR ».
@@ -251,8 +254,17 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 .manual-assign .ma-toggle.hider  { background: var(--lime); color: var(--bg); }
 
 .preset-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.preset-row .btn { margin: 0; text-align: center; padding: 12px 6px; font-size: 12px; clip-path: none; background: rgba(255,255,255,.10); color: var(--ink); }
-.preset-row .btn small { display: block; font-size: 11px; font-weight: 700; color: var(--ink-dim); margin-top: 3px; letter-spacing: 0; }
+/* .btn-sm est passé en inline-flex (pour réparer le bouton QR) : sans
+   flex-direction: column, la durée se mettait EN LIGNE à côté du libellé.
+   Et min-width: 0 est obligatoire, sinon les boutons refusent de rétrécir
+   sous leur contenu et la troisième carte sort de l'écran. */
+.preset-row .btn {
+  margin: 0; min-width: 0; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 11px 3px; font-size: 11px; letter-spacing: 0;
+  clip-path: none; background: rgba(255,255,255,.10); color: var(--ink);
+}
+.preset-row .btn small { font-size: 11px; font-weight: 700; color: var(--ink-dim); margin-top: 3px; letter-spacing: 0; }
 .preset-row .btn.active small { color: rgba(10,19,48,.72); }
 
 .cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
