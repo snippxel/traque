@@ -225,7 +225,10 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
   border: 1px solid var(--line); color: var(--phos); border-radius: 2px;
 }
 .roster { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
-.roster li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--bg-2); border-left: 3px solid var(--line); }
+/* Pas de liseré latéral : la pastille porte déjà l'état "connecté", le liseré
+   ne codait rien. Il était invisible tant que --line valait 0.14 ; en le
+   remontant pour le contraste, il serait devenu un bandeau décoratif. */
+.roster li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--bg-2); }
 .roster li .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); flex: none; }
 .roster li.on .dot { background: var(--phos); box-shadow: var(--glow); }
 .roster li .r-name { flex: 1; color: var(--white); letter-spacing: 1px; }
@@ -383,7 +386,9 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 /* Chat log flottant — à droite de la boussole, à gauche du recentrage */
 .chat-log { position: absolute; left: 88px; right: 62px; bottom: 58px; z-index: 19; display: grid; gap: 5px; pointer-events: none; }
 .chat-bubble { background: rgba(5,9,12,.9); border: 1px solid var(--line); border-left: 3px solid var(--phos); padding: 6px 10px; font-size: 13px; letter-spacing: .5px; animation: fadeup .3s; }
-.chat-bubble.hunter { border-color: var(--amber); }
+/* border-color en raccourci repeignait les QUATRE côtés : seul l'accent gauche
+   porte l'équipe, le cadre reste neutre. */
+.chat-bubble.hunter { border-left-color: var(--amber); }
 .chat-bubble b { color: var(--white); }
 @keyframes fadeup { from { opacity: 0; transform: translateY(8px);} to { opacity:1; transform:none;} }
 
@@ -602,7 +607,9 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
    la plupart des joueurs arrivent par un lien sans avoir jamais lu de règle. */
 .guest-brief { margin-top: 4px; }
 .brief-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.brief-list li { font-size: 13px; line-height: 1.5; color: var(--ink); border-left: 2px solid var(--line); padding-left: 10px; }
+.brief-list li { display: grid; gap: 2px; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.brief-list li b { font-size: 12px; letter-spacing: 2px; }
+.brief-list li span { color: var(--ink-dim); }
 .c-hider { color: var(--phos); }
 .c-hunter { color: var(--amber); }
 .c-danger { color: var(--danger); }
