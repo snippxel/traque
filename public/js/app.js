@@ -1130,10 +1130,8 @@
     if (!ok) err.textContent = 'QR indisponible — utilise le code ci-dessous ou le bouton PARTAGER.';
   };
 
-  $('btn-copy-code').onclick = () => {
-    const code = $('lobby-code').textContent;
-    navigator.clipboard && navigator.clipboard.writeText(code).then(() => toast('Code copié : ' + code)).catch(() => {});
-  };
+  // Le bouton COPIER a été retiré : trois boutons ne tenaient pas dans la
+  // largeur, et PARTAGER fait déjà mieux (il propose la copie en repli).
 
   // Partage : un lien avec le code déjà rempli, plus besoin de le dicter
   $('btn-share').onclick = async () => {
@@ -1461,7 +1459,20 @@
   // Hauteur réelle de la zone visible. window.innerHeight est la seule mesure
   // fiable sur iOS : en paysage notamment, les unités CSS peuvent dépasser
   // l'écran et faire disparaître le HUD (haut) et la barre d'actions (bas).
+  // Clavier ouvert : visualViewport tombe à ~55 % de la fenêtre. Si on répercute
+  // ça sur --app-h, le <body> se rétracte en haut de l'écran et le fond du <html>
+  // apparaît en dessous — c'est la « bande bleue » qu'on voyait, avec le
+  // formulaire coupé au milieu. On fige donc la hauteur pendant la saisie : le
+  // clavier recouvre simplement le bas de la page, et centerFocused() se charge
+  // de ramener le champ dans la partie visible.
+  function keyboardOpen() {
+    const vv = window.visualViewport;
+    if (!vv) return false;
+    return vv.height < window.innerHeight * 0.78;
+  }
+
   function setAppHeight() {
+    if (keyboardOpen()) return;
     // visualViewport donne la hauteur RÉELLEMENT visible. C'est indispensable :
     // sur Samsung Internet et iOS, la barre d'URL recouvre le contenu sans que
     // innerHeight ne change, ce qui poussait le HUD (haut) et la barre d'actions
