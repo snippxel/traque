@@ -1,11 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#05070a"/>
-  <g fill="none" stroke="#123021" stroke-width="2">
-    <path d="M0 128h512M0 256h512M0 384h512M128 0v512M256 0v512M384 0v512"/>
-  </g>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#4dffa1" stroke-width="8" opacity="0.9"/>
-  <circle cx="256" cy="256" r="92" fill="none" stroke="#4dffa1" stroke-width="4" opacity="0.55"/>
-  <circle cx="256" cy="256" r="14" fill="#4dffa1"/>
-  <path d="M256 60v120M256 332v120M60 256h120M332 256h120" stroke="#4dffa1" stroke-width="8"/>
-  <path d="M256 256 L256 106 A150 150 0 0 1 388 214 Z" fill="#4dffa1" opacity="0.14"/>
+  <!-- TRAQUE — réticule, direction DIFFUSION.
+       Même anatomie que l'icône d'origine (anneau, quatre traits de visée coupés
+       au centre, point central, quart de balayage radar), mais :
+       - l'anneau intérieur à 4 px est supprimé : rendu à 48 px il valait 0,37 px
+         et le navigateur l'effaçait ;
+       - les traits passent de 8 à 30 pour survivre aux petites tailles ;
+       - le balayage passe de 14 % à 34 % d'opacité, sinon il disparaît ;
+       - le point central est magenta : c'est TOI qui es dans le viseur. -->
+  <rect width="512" height="512" fill="#0A1330"/>
+  <path d="M256 256 L256 110 A146 146 0 0 1 402 256 Z" fill="#FF2E88" opacity="0.34"/>
+  <circle cx="256" cy="256" r="146" fill="none" stroke="#C6FF00" stroke-width="30"/>
+  <path d="M256 26v112M256 374v112M26 256h112M374 256h112" stroke="#C6FF00" stroke-width="30"/>
+  <circle cx="256" cy="256" r="42" fill="#FF2E88"/>
 </svg>

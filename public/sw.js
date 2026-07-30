@@ -5,7 +5,7 @@
  * "network-first" pour la coquille statique. Le cache ne sert QUE de repli quand
  * le réseau est indisponible — jamais pour figer une version périmée.
  */
-const CACHE = 'traque-shell-v16';
+const CACHE = 'traque-shell-v17';
 const SHELL = [
   '/',
   '/index.html',
@@ -16,6 +16,8 @@ const SHELL = [
   '/js/sensors.js',
   '/manifest.webmanifest',
   '/icons/icon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
   // Libs et polices auto-hébergées. Elles venaient de unpkg / jsDelivr /
   // fonts.gstatic.com, qu'on ne pouvait PAS mettre en cache (cross-origin).
   // Conséquences vécues sur un réseau qui saute : sans Leaflet l'écran de jeu
