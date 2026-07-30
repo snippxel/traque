@@ -1500,6 +1500,46 @@
     if (!Number.isFinite(cur) || Math.abs(h - cur) > 4) setAppHeight();
   }, 1000);
 
+  // ---------------------------------------------------------- CLAVIER MOBILE
+  // --app-h suit visualViewport : à l'ouverture du clavier la page rétrécit de
+  // moitié, et le champ qu'on est en train de remplir se retrouve sous le
+  // clavier — on tape en aveugle. Le navigateur essaie bien de le ramener, mais
+  // il le fait AVANT que la hauteur ait fini de bouger, donc ça rate.
+  // On le repositionne nous-mêmes, deux fois : le clavier s'anime et iOS
+  // redimensionne en deux temps.
+  let kbTimers = [];
+  function centerFocused() {
+    const el = document.activeElement;
+    if (!el || !el.matches || !el.matches('input, textarea, select')) return;
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    catch (_) { el.scrollIntoView(); }
+  }
+  function scheduleCenter() {
+    kbTimers.forEach(clearTimeout);
+    kbTimers = [setTimeout(centerFocused, 260), setTimeout(centerFocused, 620)];
+  }
+  document.addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches('input, textarea, select')) return;
+    // La barre de lancement est collée en bas et fait ~190 px : avec le clavier
+    // ouvert il ne reste qu'environ 400 px, elle mangerait la moitié de ce qui
+    // reste. On la retire le temps de la saisie, elle revient au relâchement.
+    document.body.classList.toggle('kb-typing', !!el.closest('#host-panel'));
+    scheduleCenter();
+  });
+  document.addEventListener('focusout', () => {
+    kbTimers.forEach(clearTimeout); kbTimers = [];
+    document.body.classList.remove('kb-typing');
+  });
+  if (window.visualViewport) {
+    // Le clavier qui s'ouvre OU se ferme redimensionne le viewport visuel :
+    // dans les deux cas on remet le champ en vue.
+    window.visualViewport.addEventListener('resize', () => {
+      if (document.activeElement && document.activeElement.matches &&
+          document.activeElement.matches('input, textarea, select')) scheduleCenter();
+    });
+  }
+
   // Wake lock auto-réacquisition
   Sensors.initWakeLockAutoReacquire();
   updateLaunchState();
