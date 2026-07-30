@@ -1,13 +1,12 @@
 'use strict';
 /*
  * sensors.js — accès matériel du téléphone :
- * géolocalisation, orientation (boussole), Wake Lock, vibration, alarme audio.
+ * géolocalisation, Wake Lock, vibration, design sonore.
  * Expose window.Sensors.
  */
 window.Sensors = (function () {
   // -------------------- Géolocalisation --------------------
   let watchId = null;
-  let lastHeading = null;
 
   function watchPosition(onPos, onErr) {
     if (!('geolocation' in navigator)) {
@@ -48,40 +47,9 @@ window.Sensors = (function () {
     });
   }
 
-  // -------------------- Orientation (boussole) --------------------
-  let orientationCb = null;
-  function handleOrientation(e) {
-    let heading = null;
-    if (typeof e.webkitCompassHeading === 'number') {
-      heading = e.webkitCompassHeading; // iOS : 0 = nord, sens horaire
-    } else if (e.absolute && typeof e.alpha === 'number') {
-      heading = 360 - e.alpha; // alpha : 0 = nord, sens antihoraire
-    }
-    if (heading != null) {
-      lastHeading = heading;
-      orientationCb && orientationCb(heading);
-    }
-  }
-  async function startCompass(cb) {
-    orientationCb = cb;
-    // iOS 13+ : permission explicite
-    try {
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        const res = await DeviceOrientationEvent.requestPermission();
-        if (res !== 'granted') return false;
-      }
-    } catch (_) { /* ignore */ }
-    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-    window.addEventListener('deviceorientation', handleOrientation, true);
-    return true;
-  }
-  function stopCompass() {
-    window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
-    window.removeEventListener('deviceorientation', handleOrientation, true);
-    orientationCb = null;
-  }
-  function heading() { return lastHeading; }
+  // La boussole a été retirée du jeu : la direction de la zone se lit
+  // directement sur la carte (cercle + position). On ne demande donc plus la
+  // permission d'orientation à iOS, et on n'écoute plus deviceorientation.
 
   // -------------------- Wake Lock --------------------
   let wakeLock = null;
@@ -250,7 +218,6 @@ window.Sensors = (function () {
 
   return {
     watchPosition, stopWatch, getOnce,
-    startCompass, stopCompass, heading,
     requestWakeLock, releaseWakeLock, initWakeLockAutoReacquire,
     vibrate, ensureAudio, startAlarm, stopAlarm, ping, beep, sfx,
   };

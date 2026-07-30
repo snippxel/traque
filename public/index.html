@@ -63,6 +63,10 @@
                  inputmode="text" enterkeyhint="go" />
         </label>
         <button id="btn-join" type="submit" class="btn">[ REJOINDRE ]</button>
+        <!-- Rejoindre en scannant le QR affiché par l'hôte. Pour ceux qui n'ont
+             pas encore l'app ouverte, l'appareil photo natif suffit : le QR
+             encode le lien de partage. -->
+        <button id="btn-scan-join" type="button" class="btn btn-ghost">[ SCANNER LE QR DE L'HÔTE ]</button>
       </form>
       <p id="home-error" class="err-line" role="alert" aria-live="assertive"></p>
       <button id="btn-install" class="btn btn-ghost btn-sm hidden">[ INSTALLER L'APP ]</button>
@@ -80,6 +84,7 @@
           <div id="lobby-code" class="lobby-code">-----</div>
         </div>
         <div class="lobby-actions">
+          <button id="btn-show-qr" class="btn btn-sm">[ QR ]</button>
           <button id="btn-copy-code" class="btn btn-ghost btn-sm">[ COPIER ]</button>
           <button id="btn-share" class="btn btn-ghost btn-sm">[ PARTAGER ]</button>
         </div>
@@ -265,15 +270,6 @@
       <ul id="pp-list" class="pp-list"></ul>
     </div>
 
-    <!-- Boussole (cachés) — en bas à gauche : dans la zone du pouce, et hors
-         de tout corridor de bandeau. -->
-    <div id="compass" class="compass hidden">
-      <div class="compass-ring">
-        <div id="compass-needle" class="compass-needle"></div>
-      </div>
-      <div class="compass-label">ZONE</div>
-    </div>
-
     <!-- Chat rapide -->
     <div id="chat-log" class="chat-log"></div>
 
@@ -350,6 +346,20 @@
       <div class="modal-sub">Un chasseur doit scanner ceci pour t’éliminer.</div>
       <canvas id="qr-canvas" width="240" height="240" aria-label="Ton QR code d’identité"></canvas>
       <div id="qr-error" class="qr-error hidden" role="alert"></div>
+      <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
+    </div>
+  </div>
+
+  <!-- QR de partie : l'hôte lève son téléphone, le groupe scanne. Le QR encode
+       le lien de partage, donc l'appareil photo natif du téléphone suffit —
+       pas besoin d'avoir déjà l'app ouverte. -->
+  <div id="modal-join-qr" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-joinqr">
+    <div class="modal-card joinqr-card">
+      <div class="modal-title" id="mt-joinqr">REJOINDRE LA PARTIE</div>
+      <div class="modal-sub">Scannez ce code avec l’appareil photo de votre téléphone.</div>
+      <canvas id="joinqr-canvas" width="440" height="440" aria-label="QR code pour rejoindre la partie"></canvas>
+      <div id="joinqr-error" class="qr-error hidden" role="alert"></div>
+      <div class="joinqr-code"><span class="joinqr-k">OU CODE</span><span id="joinqr-code">-----</span></div>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
     </div>
   </div>

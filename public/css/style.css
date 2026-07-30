@@ -365,18 +365,6 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 .sb-note.live { color: var(--bg); background: var(--lime); display: inline-block; padding: 3px 8px; }
 .sb-note.safe { color: rgba(255,255,255,.85); }
 
-/* Boussole : dans la zone du pouce */
-.compass { position: absolute; left: 10px; bottom: 58px; z-index: 20; width: 68px; text-align: center; }
-.compass-ring { width: 68px; height: 68px; border: 2px solid var(--line); border-radius: 50%; position: relative; background: rgba(10,19,48,.86); }
-.compass-needle {
-  position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-origin: 50% 100%;
-  border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 27px solid var(--lime);
-  transform: translate(-50%, -100%); transition: transform .18s linear;
-}
-.compass.stale .compass-needle { display: none; }
-.compass.stale .compass-ring::after { content: '?'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--red); font-size: 28px; font-weight: 900; }
-.compass.stale .compass-label { background: var(--red); color: var(--white); }
-.compass-label { font-size: 11px; font-weight: 900; color: var(--bg); background: var(--lime); letter-spacing: .1em; margin-top: 4px; padding: 2px 5px; display: inline-block; }
 
 /* Barre d'actions : segments de retransmission */
 .action-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; gap: 2px; background: rgba(10,19,48,.55); }
@@ -404,7 +392,7 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 .leaflet-zoom-anim .leaflet-marker-icon { transition: none; }
 
 /* Chat : bloc expéditeur + bloc message, même grammaire que les incrustations */
-.chat-log { position: absolute; left: 88px; right: 62px; bottom: 58px; z-index: 19; display: grid; gap: 5px; pointer-events: none; justify-items: start; }
+.chat-log { position: absolute; left: 10px; right: 62px; bottom: 58px; z-index: 19; display: grid; gap: 5px; pointer-events: none; justify-items: start; }
 .chat-bubble { display: flex; align-items: stretch; max-width: 100%; animation: thirdIn 300ms var(--out) both; }
 .chat-bubble b {
   background: var(--lime); color: var(--bg); font-size: 11px; font-weight: 900; letter-spacing: .08em;
@@ -524,7 +512,7 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 .chat-form .btn { margin: 0; white-space: nowrap; }
 
 /* Toasts : incrustations basses */
-.toasts { position: fixed; left: 10px; bottom: 160px; z-index: 95; display: grid; gap: 6px; justify-items: start; max-width: calc(100% - 20px); }
+.toasts { position: fixed; left: 10px; bottom: 118px; z-index: 95; display: grid; gap: 6px; justify-items: start; max-width: calc(100% - 20px); }
 .toast { background: var(--elec); color: var(--white); padding: 10px 20px 11px 13px; font-size: 13px; font-weight: 800; letter-spacing: .02em;
   clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%); animation: thirdIn 340ms var(--hard) both; }
 .toast.amber  { background: var(--mag); }
@@ -553,6 +541,14 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
   font-size: 11px; font-weight: 900; color: var(--bg); background: var(--lime); padding: 2px 6px; letter-spacing: .04em; }
 .mk-accuracy { border-radius: 50%; background: rgba(198,255,0,0.08); border: 1px solid rgba(198,255,0,0.3); }
 
+/* QR de partie : l'hôte lève son téléphone, le groupe scanne. Le code doit
+   rester lisible à un mètre, donc fond blanc franc et taille maximale. */
+.joinqr-card { max-width: 380px; text-align: center; }
+#joinqr-canvas { width: 100%; max-width: 300px; height: auto; aspect-ratio: 1; background: #fff; padding: 14px; image-rendering: pixelated; display: block; margin: 0 auto; }
+.joinqr-code { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px; }
+.joinqr-k { font-size: 11px; font-weight: 900; letter-spacing: .16em; color: var(--ink-dim); }
+#joinqr-code { font-family: var(--disp); font-size: 28px; font-weight: 900; letter-spacing: .18em; color: var(--white); }
+
 .hidden { display: none !important; }
 
 @media (max-height: 480px) {
@@ -566,11 +562,9 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
   .sb-title { font-size: 22px; }
   .sb-timer { font-size: 24px; margin-top: 2px; }
   .sb-sub, .sb-note { font-size: 11px; }
-  .compass { bottom: 52px; width: 54px; }
-  .compass-ring { width: 54px; height: 54px; }
   .recenter { bottom: 52px; }
-  .chat-log { bottom: 52px; left: 74px; }
-  .toasts { bottom: 118px; }
+  .chat-log { bottom: 52px; }
+  .toasts { bottom: 112px; }
   .za-count { font-size: 62px; }
   .ca-title { font-size: 40px; }
 }

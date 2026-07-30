@@ -498,7 +498,6 @@
       if (!ok) toast('⚠ L’écran peut se verrouiller : garde l’app ouverte, sinon ta position se fige.', 'amber', 8000);
     });
     Sensors.ensureAudio();
-    if (s.you.role === 'hider') startCompass();
     startHudTicker();
   }
 
@@ -559,7 +558,6 @@
       $('btn-scan').classList.remove('locked');
       $('btn-radar').classList.remove('locked');
     }
-    $('compass').classList.toggle('hidden', role !== 'hider');
     // Timer de révélation : caché seulement en phase de chasse (masqué au départ)
     const rt = $('reveal-timer');
     rt.classList.toggle('hidden', dispersion);
@@ -567,7 +565,6 @@
     $('rt-label').textContent = role === 'hunter' ? 'RÉVÉLATION' : 'TON SIGNAL';
     // Bandeau rétrécissement masqué pendant la dispersion (la zone ne bouge pas encore)
     if (dispersion) $('hud-shrink').classList.add('hidden');
-    if (role === 'hunter') stopCompass();
 
     // Interface de départ
     updateStartBanner();
@@ -623,17 +620,6 @@
       $('reveal-timer').classList.toggle('soon', left < 15000);
     } else {
       $('rt-value').textContent = '--:--';
-    }
-    // Boussole (cachés). Sans fix frais, l'aiguille restait affichée avec un
-    // transform VIDE : une flèche confiante qui ne pointait nulle part.
-    const compass = $('compass');
-    const fresh = gpsFresh();
-    compass.classList.toggle('stale', !fresh);
-    if (state.role === 'hider' && s.zone && s.zone.center && state.selfPos && fresh) {
-      const brg = GameMap.bearing(state.selfPos, s.zone.center);
-      const head = Sensors.heading();
-      const rot = head == null ? brg : (brg - head);
-      $('compass-needle').style.transform = 'translate(-50%, -100%) rotate(' + rot + 'deg)';
     }
   }
 
@@ -744,7 +730,6 @@
   function teardownGame() {
     state.inGame = false;
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
-    stopCompass();
     Sensors.stopAlarm();
     Sensors.releaseWakeLock();
     clearZoneAlert();
@@ -910,22 +895,6 @@
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
   }
-
-  // ================================================================ BOUSSOLE
-  let compassOn = false;
-  async function startCompass() {
-    if (compassOn) return;
-    // iOS 13+ : la permission peut être refusée hors geste utilisateur.
-    // On ne verrouille compassOn que si l'activation a réellement réussi,
-    // pour pouvoir retenter au prochain toucher.
-    const ok = await Sensors.startCompass(() => {});
-    compassOn = ok !== false;
-  }
-  function stopCompass() { if (compassOn) { Sensors.stopCompass(); compassOn = false; } }
-  // Nouvelle tentative boussole au toucher (contexte de geste requis par iOS)
-  document.addEventListener('pointerdown', () => {
-    if (state.inGame && state.role === 'hider' && !compassOn) startCompass();
-  });
 
   // ================================================================ UI HANDLERS
   // --- Accueil ---
@@ -1147,6 +1116,20 @@
     if (msg) lobbyErrTimer = setTimeout(() => { $('lobby-error').textContent = ''; }, 6000);
   }
 
+  // --- QR de partie : l'hôte lève son téléphone, le groupe scanne ---
+  // Le QR encode le LIEN de partage, pas le code seul : l'appareil photo natif
+  // du téléphone l'ouvre directement, donc personne n'a besoin d'avoir déjà
+  // l'app installée ni ouverte pour rejoindre.
+  function joinUrl() { return location.origin + '/?c=' + $('lobby-code').textContent; }
+  $('btn-show-qr').onclick = () => {
+    openModal('modal-join-qr');
+    $('joinqr-code').textContent = $('lobby-code').textContent;
+    const ok = QR.render($('joinqr-canvas'), joinUrl());
+    const err = $('joinqr-error');
+    err.classList.toggle('hidden', ok);
+    if (!ok) err.textContent = 'QR indisponible — utilise le code ci-dessous ou le bouton PARTAGER.';
+  };
+
   $('btn-copy-code').onclick = () => {
     const code = $('lobby-code').textContent;
     navigator.clipboard && navigator.clipboard.writeText(code).then(() => toast('Code copié : ' + code)).catch(() => {});
@@ -1236,8 +1219,12 @@
   });
 
   // --- Scan modal ---
+  // Deux usages pour la même caméra : éliminer une cible, ou rejoindre une
+  // partie. Chacun a son validateur, donc un QR de partie ne peut pas être pris
+  // pour un QR d'identité et inversement.
   function openScan() {
     openModal('modal-scan');
+    $('mt-scan').textContent = 'SCAN CIBLE';
     $('scan-status').textContent = 'Chargement du scanner…';
     QR.startScan($('scan-video'), onScanDetect, (err) => { $('scan-status').textContent = err; });
     setTimeout(() => {
@@ -1246,6 +1233,38 @@
       }
     }, 400);
   }
+
+  // Accepte le lien de partage (…/?c=ABCDE) comme le code nu.
+  function extractGameCode(data) {
+    const s = String(data || '').trim();
+    const m = s.match(/[?&]c=([A-Za-z0-9]{5})(?![A-Za-z0-9])/);
+    if (m) return m[1].toUpperCase();
+    if (/^[A-Za-z0-9]{5}$/.test(s)) return s.toUpperCase();
+    return null;
+  }
+  function openJoinScan() {
+    const name = ($('input-name').value || '').trim();
+    if (!name) { homeError('ENTRE D’ABORD TON IDENTIFIANT'); $('input-name').focus(); return; }
+    openModal('modal-scan');
+    $('mt-scan').textContent = 'SCAN PARTIE';
+    $('scan-status').textContent = 'Chargement du scanner…';
+    QR.startScan($('scan-video'), onJoinScanDetect,
+      (err) => { $('scan-status').textContent = err; },
+      extractGameCode);
+    setTimeout(() => {
+      if (!$('modal-scan').classList.contains('hidden') && $('scan-status').textContent === 'Chargement du scanner…') {
+        $('scan-status').textContent = 'Vise le QR affiché par l’hôte…';
+      }
+    }, 400);
+  }
+  function onJoinScanDetect(code) {
+    $('scan-status').textContent = 'PARTIE ' + code + ' — connexion…';
+    Sensors.sfx('tag'); Sensors.vibrate([80, 50, 80]);
+    $('input-code').value = code;
+    closeModal($('modal-scan'));
+    doJoin();
+  }
+  $('btn-scan-join').onclick = openJoinScan;
   function onScanDetect(token) {
     $('scan-status').textContent = 'Vérification…';
     socket.emit('scanQR', { token }, (res) => {

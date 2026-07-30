@@ -69,10 +69,15 @@ window.QR = (function () {
   let tickFn = null;
   let detectCb = null;
 
-  async function startScan(video, onDetect, onError) {
+  // `validate` reçoit la donnée brute du QR et retourne la valeur à remonter,
+  // ou null pour continuer à scanner. Par défaut : un token d'identité. C'est ce
+  // qui permet d'utiliser la même caméra pour deux usages très différents —
+  // capturer une cible, ou rejoindre une partie — sans que l'un accepte l'autre.
+  async function startScan(video, onDetect, onError, validate) {
     if (sessionActive) { resumeScan(); return; }
     sessionActive = true;
     detectCb = onDetect;
+    const check = validate || ((d) => (TOKEN_RE.test(d) ? d : null));
 
     const hasLib = await ensureLib();
     if (!hasLib) {
@@ -106,12 +111,13 @@ window.QR = (function () {
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
         if (code && code.data) {
-          if (TOKEN_RE.test(code.data)) {
+          const value = check(code.data);
+          if (value != null) {
             // On coupe la boucle AVANT de remonter la détection : c'est ce qui
             // permet à resumeScan() de la relancer si le serveur refuse.
             looping = false;
             rafId = null;
-            detectCb && detectCb(code.data);
+            detectCb && detectCb(value);
             return;
           }
           // QR étranger : on continue de scanner sans rien signaler.
