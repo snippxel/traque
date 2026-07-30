@@ -32,6 +32,7 @@
     inGame: false,
     alertDeadline: null,
     spottedUntil: 0,     // fin de la fenêtre "chasseur visible" (repéré au radar)
+    targetUntil: 0,      // fin de la fenêtre "cible visible" (côté chasseur, après radar)
     zoneClosingAt: 0,    // heure du prochain rétrécissement annoncé (alerte -1 min)
     wasDispersing: false, // pour détecter le passage dispersion -> chasse
     manualRoles: {},     // cache local pour l'attribution manuelle
@@ -533,8 +534,13 @@
       })));
       GameMap.setReveals(s.reveals || []);
       GameMap.setSpotted([]);
+      // Le serveur donne un 'until' par révélation : on garde la plus lointaine
+      // pour savoir combien de temps la cible reste encore affichée.
+      const ends = (s.reveals || []).map((r) => r.until).filter(Boolean);
+      state.targetUntil = ends.length ? Math.max(...ends) : 0;
     } else {
       GameMap.clearSignals();
+      state.targetUntil = 0;
       GameMap.setSpotted(s.spotted || []);
       // Synchronise la fin de fenêtre "chasseur visible" depuis l'état serveur
       if (s.spotted && s.spotted.length) {
@@ -577,7 +583,7 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); updateStartBanner(); updateGpsBadge(); updateAlertLane(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateTargetBanner(); updateZoneClosing(); updateStartBanner(); updateGpsBadge(); updateAlertLane(); }, 250);
   }
   // Bouton radar : nombre d'utilisations restantes (3 par partie)
   function updateRadarButton() {
@@ -627,7 +633,7 @@
   // en position absolue à des offsets fixes et se recouvraient : pendant
   // "FUYEZ !", start-banner masquait la boussole ET le badge GPS — les deux
   // instruments dont un caché a besoin pour décider où courir.
-  const LANE_PRIORITY = ['zone-closing', 'start-banner', 'spot-banner'];
+  const LANE_PRIORITY = ['zone-closing', 'start-banner', 'spot-banner', 'target-banner'];
   function updateAlertLane() {
     let taken = false;
     for (const id of LANE_PRIORITY) {
@@ -715,6 +721,19 @@
       if (state.spottedUntil) { state.spottedUntil = 0; GameMap.setSpotted([]); }
     }
   }
+  // Symétrique de updateSpotBanner : le chasseur voit combien de temps il lui
+  // reste avant que le point de sa cible disparaisse.
+  function updateTargetBanner() {
+    const left = (state.targetUntil || 0) - Date.now();
+    if (left > 0) {
+      wantBanner('target-banner', true);
+      $('target-timer').textContent = fmt(left);
+    } else {
+      wantBanner('target-banner', false);
+      if (state.targetUntil) state.targetUntil = 0;
+    }
+  }
+
   function fmt(ms) {
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
@@ -739,8 +758,10 @@
     $('spot-alert').classList.add('hidden');
     hideCaptureTakeover();
     wantBanner('spot-banner', false);
+    wantBanner('target-banner', false);
     wantBanner('zone-closing', false);
     wantBanner('start-banner', false);
+    state.targetUntil = 0;
     updateAlertLane();
     $('reveal-timer').classList.add('hidden');
     $('btn-scan').classList.remove('locked');

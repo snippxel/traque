@@ -40,7 +40,7 @@ window.GameMap = (function () {
     const cls = 'mk-self ' + role;
     if (!selfMarker) {
       selfMarker = L.marker([pos.lat, pos.lng], { icon: divIcon(cls, 'MOI'), zIndexOffset: 1000 }).addTo(map);
-      accuracyCircle = L.circle([pos.lat, pos.lng], { radius: pos.accuracy || 15, color: '#4dffa1', weight: 1, opacity: 0.25, fillColor: '#4dffa1', fillOpacity: 0.05 }).addTo(map);
+      accuracyCircle = L.circle([pos.lat, pos.lng], { radius: pos.accuracy || 15, color: '#C6FF00', weight: 1, opacity: 0.3, fillColor: '#C6FF00', fillOpacity: 0.06 }).addTo(map);
     } else {
       selfMarker.setLatLng([pos.lat, pos.lng]);
       selfMarker.setIcon(divIcon(cls, 'MOI'));
@@ -131,24 +131,56 @@ window.GameMap = (function () {
     setTimeout(() => map.removeLayer(m), ms || 6000);
   }
 
+  // Points d'un cercle géodésique approximé, pour construire un anneau troué.
+  function ringPoints(center, radiusM, n, reverse) {
+    const latR = radiusM / 111320;
+    const lngR = radiusM / (111320 * Math.cos(center.lat * Math.PI / 180) || 1);
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * 2 * Math.PI;
+      pts.push([center.lat + latR * Math.sin(a), center.lng + lngR * Math.cos(a)]);
+    }
+    return reverse ? pts.reverse() : pts;
+  }
+
+  // Deux cercles concentriques ne disent pas grand-chose. Ce qui compte pour un
+  // joueur, c'est : "quelle partie du terrain va devenir mortelle ?". On peint
+  // donc la BANDE CONDAMNÉE entre la zone actuelle et la suivante, en rouge.
+  // Le contour actuel reste lime (tu es en sécurité dedans), le prochain est un
+  // tireté magenta franc.
+  let doomBand = null;
   function setZone(zone) {
     if (!map || !zone || !zone.center) return;
     const c = [zone.center.lat, zone.center.lng];
+
     if (!zoneCircle) {
-      zoneCircle = L.circle(c, { radius: zone.radius, color: '#4dffa1', weight: 2, fill: true, fillColor: '#4dffa1', fillOpacity: 0.04 }).addTo(map);
+      zoneCircle = L.circle(c, { radius: zone.radius, color: '#C6FF00', weight: 4, fill: false, interactive: false }).addTo(map);
       // Première zone reçue : on cadre la carte dessus pour voir tout le terrain de jeu
       try { map.fitBounds(zoneCircle.getBounds().pad(0.08)); hasCentered = true; } catch (_) {}
     } else {
       zoneCircle.setLatLng(c); zoneCircle.setRadius(zone.radius);
     }
-    if (zone.nextShrinkAt && zone.nextRadius < zone.radius) {
+
+    const shrinking = zone.nextShrinkAt && zone.nextRadius < zone.radius;
+
+    if (shrinking) {
+      const outer = ringPoints(zone.center, zone.radius, 72, false);
+      const inner = ringPoints(zone.center, zone.nextRadius, 72, true);
+      if (!doomBand) {
+        doomBand = L.polygon([outer, inner], {
+          stroke: false, fillColor: '#FF3B1F', fillOpacity: 0.22, interactive: false,
+        }).addTo(map);
+      } else {
+        doomBand.setLatLngs([outer, inner]);
+      }
       if (!nextZoneCircle) {
-        nextZoneCircle = L.circle(c, { radius: zone.nextRadius, color: '#ff2f45', weight: 1.5, dashArray: '6 6', fill: false }).addTo(map);
+        nextZoneCircle = L.circle(c, { radius: zone.nextRadius, color: '#FF2E88', weight: 4, dashArray: '14 10', fill: false, interactive: false }).addTo(map);
       } else {
         nextZoneCircle.setLatLng(c); nextZoneCircle.setRadius(zone.nextRadius);
       }
-    } else if (nextZoneCircle) {
-      map.removeLayer(nextZoneCircle); nextZoneCircle = null;
+    } else {
+      if (doomBand) { map.removeLayer(doomBand); doomBand = null; }
+      if (nextZoneCircle) { map.removeLayer(nextZoneCircle); nextZoneCircle = null; }
     }
   }
 
@@ -167,6 +199,7 @@ window.GameMap = (function () {
     if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
     if (zoneCircle) { map.removeLayer(zoneCircle); zoneCircle = null; }
     if (nextZoneCircle) { map.removeLayer(nextZoneCircle); nextZoneCircle = null; }
+    if (doomBand) { map.removeLayer(doomBand); doomBand = null; }
     for (const m of markers.values()) map.removeLayer(m);
     markers.clear();
     revealMarkers.forEach((m) => map.removeLayer(m)); revealMarkers = [];
@@ -193,7 +226,7 @@ window.GameMap = (function () {
     previewInit();
     const c = [pos.lat, pos.lng];
     if (!pCircle) {
-      pCircle = L.circle(c, { radius, color: '#4dffa1', weight: 2, fillColor: '#4dffa1', fillOpacity: 0.06 }).addTo(pMap);
+      pCircle = L.circle(c, { radius, color: '#C6FF00', weight: 4, fillColor: '#C6FF00', fillOpacity: 0.07 }).addTo(pMap);
       pMarker = L.marker(c, { icon: divIcon('mk-self hider', 'DÉPART') }).addTo(pMap);
     } else {
       pCircle.setLatLng(c); pCircle.setRadius(radius);

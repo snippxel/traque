@@ -389,7 +389,7 @@ body.kb-typing .launch-bar { display: none; }
 
 /* Toutes les incrustations partagent la même grammaire : aplat plein,
    coin biseauté à droite, entrée par la gauche en coupe franche. */
-.hud-shrink, .zone-closing, .spot-banner {
+.hud-shrink, .zone-closing, .spot-banner, .target-banner {
   align-self: flex-start;
   padding: 8px 20px 9px 12px;
   font-family: var(--disp); font-weight: 900; letter-spacing: .04em;
@@ -404,6 +404,9 @@ body.kb-typing .launch-bar { display: none; }
 .zone-closing span { color: var(--white); }
 .spot-banner { background: var(--mag); color: var(--white); font-size: 13px; }
 .spot-banner span { color: var(--lime); }
+/* La cible est un caché : lime, conformément à la loi de couleur. */
+.target-banner { background: var(--lime); color: var(--bg); font-size: 13px; }
+.target-banner span { color: var(--bg); font-variant-numeric: tabular-nums; }
 
 /* Bandeau de départ : plein cadre, typo qui claque en cascade */
 .start-banner {
@@ -625,7 +628,7 @@ body.kb-typing .launch-bar { display: none; }
   .hud-k { font-size: 11px; letter-spacing: .1em; }
   .hud-v { font-size: 18px; }
   .act { padding: 12px 4px 14px; font-size: 12px; }
-  .hud-shrink, .zone-closing, .spot-banner { font-size: 11px; padding: 6px 18px 7px 10px; }
+  .hud-shrink, .zone-closing, .spot-banner, .target-banner { font-size: 11px; padding: 6px 18px 7px 10px; }
   .start-banner { padding: 8px 12px 10px; }
   .sb-title { font-size: 22px; }
   .sb-timer { font-size: 24px; margin-top: 2px; }
