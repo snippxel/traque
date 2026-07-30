@@ -1,0 +1,37 @@
+/* Polices auto-hébergées (sous-ensemble latin uniquement, suffisant pour le
+   français). Elles étaient chargées depuis fonts.googleapis.com : sur un réseau
+   4G qui saute, le CSS distant ne revenait pas et toute l'interface retombait
+   sur ui-monospace, ce qui décalait les bannières en white-space: nowrap.
+   En local elles sont mises en cache par le service worker comme le reste. */
+
+@font-face {
+  font-family: 'Share Tech Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/vendor/fonts/share-tech-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Rajdhani';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/vendor/fonts/rajdhani-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Rajdhani';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/vendor/fonts/rajdhani-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Rajdhani';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/vendor/fonts/rajdhani-700.woff2') format('woff2');
+}

@@ -21,7 +21,10 @@ window.Sensors = (function () {
         accuracy: p.coords.accuracy,
         time: p.timestamp,
       }),
-      (e) => onErr && onErr(geoErrMsg(e)),
+      // Le code d'erreur remonte aussi : l'appelant doit pouvoir distinguer un
+      // refus de permission (état définitif, à afficher en permanence) d'un
+      // simple délai dépassé (transitoire).
+      (e) => onErr && onErr(geoErrMsg(e), e && e.code),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     );
   }

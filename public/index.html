@@ -6,6 +6,7 @@
        navigateur, ce qui masquait le HUD (haut) et la barre d'actions (bas). -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#05070a" />
+  <meta name="color-scheme" content="dark" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -15,50 +16,61 @@
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <!-- Tout est auto-hébergé : sur le terrain le réseau saute, et une ressource
+       tierce non mise en cache = écran de jeu blanc ou QR mort, sans message. -->
+  <link rel="stylesheet" href="/vendor/leaflet.css" />
+  <link rel="stylesheet" href="/vendor/fonts.css" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
   <div class="scanlines" aria-hidden="true"></div>
   <div class="grid-bg" aria-hidden="true"></div>
 
+  <!-- Liaison perdue : visible sur TOUS les écrans. Avant, l'indicateur réseau
+       n'existait que dans la partie : l'hôte dans une zone morte appuyait sur
+       CRÉER et n'obtenait strictement rien. -->
+  <div id="offline-banner" class="offline-banner hidden" role="status" aria-live="polite">
+    ⚠ HORS LIGNE — RECONNEXION…
+  </div>
+
   <!-- ================= ÉCRAN : ACCUEIL ================= -->
-  <section id="screen-home" class="screen active">
+  <section id="screen-home" class="screen active" aria-labelledby="h-home">
     <div class="home-wrap">
       <header class="brand">
-        <div class="brand-mark"><span class="reticle"></span></div>
+        <div class="brand-mark"><span class="reticle" aria-hidden="true"></span></div>
         <h1 class="brand-title">TRAQUE</h1>
         <p class="brand-sub">// PROTOCOLE CACHE-CACHE — IRL GEO-OPS</p>
       </header>
+      <h2 id="h-home" class="sr-only">Créer ou rejoindre une partie</h2>
 
-      <div class="panel bracket">
-        <label class="field">
+      <form id="home-form" class="panel bracket" autocomplete="off">
+        <label class="field" for="input-name">
           <span class="field-label">IDENTIFIANT OPÉRATEUR</span>
-          <input id="input-name" type="text" maxlength="20" placeholder="ex. FOX-07" autocomplete="off" />
+          <input id="input-name" type="text" maxlength="20" placeholder="ex. FOX-07"
+                 autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="next" />
         </label>
 
-        <button id="btn-create" class="btn btn-primary">[ CRÉER UNE PARTIE ]</button>
+        <button id="btn-create" type="button" class="btn btn-primary">[ CRÉER UNE PARTIE ]</button>
 
         <div class="sep"><span>OU</span></div>
 
-        <label class="field">
+        <label class="field" for="input-code">
           <span class="field-label">CODE DE PARTIE</span>
-          <input id="input-code" type="text" maxlength="5" placeholder="XXXXX" autocomplete="off" class="code-input" />
+          <input id="input-code" type="text" maxlength="5" placeholder="XXXXX" class="code-input"
+                 autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
+                 inputmode="text" enterkeyhint="go" />
         </label>
-        <button id="btn-join" class="btn">[ REJOINDRE ]</button>
-      </div>
-      <p id="home-error" class="err-line"></p>
+        <button id="btn-join" type="submit" class="btn">[ REJOINDRE ]</button>
+      </form>
+      <p id="home-error" class="err-line" role="alert" aria-live="assertive"></p>
       <button id="btn-install" class="btn btn-ghost btn-sm hidden">[ INSTALLER L'APP ]</button>
       <p class="foot-note">Aucun compte. Aucune donnée stockée. Une partie = un objet en mémoire.</p>
     </div>
   </section>
 
   <!-- ================= ÉCRAN : LOBBY ================= -->
-  <section id="screen-lobby" class="screen">
+  <section id="screen-lobby" class="screen" aria-labelledby="h-lobby">
+    <h2 id="h-lobby" class="sr-only">Salon de partie</h2>
     <div class="lobby-wrap">
       <header class="lobby-head">
         <div>
@@ -73,13 +85,22 @@
 
       <div class="panel bracket">
         <div class="mini-label">OPÉRATEURS CONNECTÉS <span id="roster-count" class="tag">0</span></div>
-        <ul id="roster" class="roster"></ul>
+        <ul id="roster" class="roster" aria-live="polite"></ul>
       </div>
 
       <!-- Aperçu de la zone (hôte) : vérifier routes / plans d'eau AVANT de lancer -->
       <div id="zone-preview-panel" class="panel bracket hidden">
         <div class="mini-label">APERÇU DE LA ZONE <span id="preview-radius" class="tag">—</span></div>
-        <div id="lobby-map" class="lobby-map"></div>
+        <div class="lobby-map-wrap">
+          <div id="lobby-map" class="lobby-map"></div>
+          <!-- Sans position, la carte était un rectangle noir vide et l'hôte
+               pouvait quand même certifier que le terrain est sûr. -->
+          <div id="preview-empty" class="preview-empty">
+            <div class="pe-title">PAS DE POSITION</div>
+            <div class="pe-sub">Impossible d’afficher le terrain à vérifier.</div>
+            <button id="btn-preview-retry" type="button" class="btn btn-ghost btn-sm">[ RÉESSAYER ]</button>
+          </div>
+        </div>
         <div id="preview-hint" class="preview-hint">Acquisition GPS…</div>
       </div>
 
@@ -87,99 +108,163 @@
       <div id="host-panel" class="panel bracket hidden">
         <div class="mini-label">RÉPARTITION DES RÔLES</div>
         <div class="role-mode">
-          <button id="btn-role-random" class="btn btn-sm active">[ ALÉATOIRE ~25% ]</button>
-          <button id="btn-role-manual" class="btn btn-sm">[ MANUEL ]</button>
+          <button id="btn-role-random" class="btn btn-sm active" aria-pressed="true">[ ALÉATOIRE ~25% ]</button>
+          <button id="btn-role-manual" class="btn btn-sm" aria-pressed="false">[ MANUEL ]</button>
         </div>
         <div id="manual-assign" class="manual-assign hidden"></div>
 
-        <div class="mini-label mt">PARAMÈTRES</div>
-        <div class="cfg-grid">
-          <label class="cfg"><span>Rayon départ (m)</span><input id="cfg-startRadius" type="number" min="20" max="20000" step="10" /></label>
-          <label class="cfg"><span>Rayon final (m)</span><input id="cfg-finalRadius" type="number" min="10" max="20000" step="10" /></label>
-          <label class="cfg"><span>Durée (min)</span><input id="cfg-durationMin" type="number" min="1" max="600" step="1" /></label>
-          <label class="cfg"><span>Paliers (1–10)</span><input id="cfg-shrinkSteps" type="number" min="1" max="10" step="1" /></label>
-          <label class="cfg"><span>Révélation (min)</span><input id="cfg-revealIntervalMin" type="number" min="0.1" max="60" step="0.5" /></label>
-          <label class="cfg"><span>Grâce hors-zone (s)</span><input id="cfg-graceSeconds" type="number" min="3" max="120" step="1" /></label>
-          <label class="cfg"><span>Radars / chasseur</span><input id="cfg-radarUses" type="number" min="0" max="20" step="1" /></label>
-          <label class="cfg"><span>Dispersion (s)</span><input id="cfg-dispersionSeconds" type="number" min="0" max="600" step="5" /></label>
-          <label class="cfg"><span>Visibilité départ (s)</span><input id="cfg-startRevealSeconds" type="number" min="0" max="600" step="5" /></label>
-          <label class="cfg"><span>Jeu zone finale (min)</span><input id="cfg-finalZoneMinutes" type="number" min="0" max="60" step="0.5" /></label>
+        <!-- Préréglages : dans la vraie scène, l'hôte est debout au milieu du
+             groupe avec onze personnes qui attendent. Dix champs numériques
+             dépliés en permanence, ce n'est pas la bonne forme. -->
+        <div class="mini-label mt">FORMAT DE PARTIE</div>
+        <div class="preset-row">
+          <button id="btn-preset-fast" type="button" class="btn btn-sm preset">[ RAPIDE ]<small>10 min</small></button>
+          <button id="btn-preset-classic" type="button" class="btn btn-sm preset">[ CLASSIQUE ]<small>25 min</small></button>
+          <button id="btn-preset-long" type="button" class="btn btn-sm preset">[ LONGUE ]<small>45 min</small></button>
         </div>
-        <label class="check-line">
-          <input id="cfg-lastSurvivor" type="checkbox" />
-          <span>Mode « dernier survivant » (pas de limite de temps)</span>
-        </label>
 
-        <label class="check-line danger-check">
-          <input id="chk-safety" type="checkbox" />
-          <span>J’ai vérifié que la zone est sûre — pas de routes passantes, plans d’eau, etc.</span>
-        </label>
-
-        <button id="btn-launch" class="btn btn-primary" disabled>[ LANCER LA PARTIE ]</button>
-        <p id="lobby-error" class="err-line"></p>
+        <details id="cfg-advanced" class="cfg-advanced">
+          <summary class="cfg-summary">RÉGLAGES AVANCÉS</summary>
+          <div class="cfg-grid">
+            <label class="cfg"><span>Rayon départ (m)</span><input id="cfg-startRadius" type="number" min="20" max="20000" step="10" /></label>
+            <label class="cfg"><span>Rayon final (m)</span><input id="cfg-finalRadius" type="number" min="10" max="20000" step="10" /></label>
+            <label class="cfg"><span>Durée (min)</span><input id="cfg-durationMin" type="number" min="1" max="600" step="1" /></label>
+            <label class="cfg"><span>Paliers (1–10)</span><input id="cfg-shrinkSteps" type="number" min="1" max="10" step="1" /></label>
+            <label class="cfg"><span>Révélation (min)</span><input id="cfg-revealIntervalMin" type="number" min="0.1" max="60" step="0.5" /></label>
+            <label class="cfg"><span>Grâce hors-zone (s)</span><input id="cfg-graceSeconds" type="number" min="3" max="120" step="1" /></label>
+            <label class="cfg"><span>Radars / chasseur</span><input id="cfg-radarUses" type="number" min="0" max="20" step="1" /></label>
+            <label class="cfg"><span>Dispersion (s)</span><input id="cfg-dispersionSeconds" type="number" min="0" max="600" step="5" /></label>
+            <label class="cfg"><span>Visibilité départ (s)</span><input id="cfg-startRevealSeconds" type="number" min="0" max="600" step="5" /></label>
+            <label class="cfg"><span>Jeu zone finale (min)</span><input id="cfg-finalZoneMinutes" type="number" min="0" max="60" step="0.5" /></label>
+          </div>
+          <label class="check-line">
+            <input id="cfg-lastSurvivor" type="checkbox" />
+            <span>Mode « dernier survivant » (pas de limite de temps)</span>
+          </label>
+          <p id="cfg-warning" class="cfg-warning hidden" role="alert"></p>
+        </details>
       </div>
 
       <!-- Panneau JOUEUR (non-hôte) -->
       <div id="guest-panel" class="panel bracket hidden">
         <div class="waiting">
-          <span class="pulse-dot"></span>
+          <span class="pulse-dot" aria-hidden="true"></span>
           <div>
             <div class="waiting-title">EN ATTENTE DE L’HÔTE</div>
             <div class="waiting-sub">Ton rôle : <b id="guest-role">—</b>. Le lancement est verrouillé de ton côté.</div>
           </div>
         </div>
+        <!-- Le lobby est la plus longue plage morte de la session côté invité.
+             Autant y mettre les règles : la plupart des joueurs arrivent par un
+             lien partagé et n'ont jamais lu de notice. -->
+        <div id="guest-brief" class="guest-brief">
+          <div class="mini-label mt">BRIEFING</div>
+          <ul class="brief-list">
+            <li><b class="c-hider">CACHÉ</b> — fuis pendant la dispersion, reste dans le cercle vert. Ton QR code est ton identité : un chasseur qui le scanne t’élimine.</li>
+            <li><b class="c-hunter">CHASSEUR</b> — tu es bloqué au départ, puis tu chasses. Scanne le QR de tes cibles. Le radar révèle le caché le plus proche.</li>
+            <li><b class="c-danger">LA ZONE RÉTRÉCIT</b> par paliers. Hors zone, tu as quelques secondes avant de passer chasseur.</li>
+            <li>Garde l’écran allumé, sinon le GPS se coupe et ta position se fige pour les autres.</li>
+          </ul>
+        </div>
       </div>
 
       <button id="btn-leave-lobby" class="btn btn-ghost btn-sm">[ QUITTER ]</button>
     </div>
+
+    <!-- Barre de lancement collée en bas (hôte) : le code, l'effectif, la
+         vérification de sécurité et le lancement restent visibles quel que soit
+         le défilement. Avant, le bouton était à ~1400 px du code de partie. -->
+    <div id="launch-bar" class="launch-bar hidden">
+      <label class="check-line danger-check">
+        <input id="chk-safety" type="checkbox" />
+        <span>J’ai vérifié que la zone est sûre — pas de routes passantes, plans d’eau, etc.</span>
+      </label>
+      <div class="lb-row">
+        <div class="lb-meta">
+          <span class="lb-code" id="lb-code">-----</span>
+          <span class="lb-count"><span id="lb-count">0</span> OPÉRATEURS</span>
+        </div>
+        <button id="btn-launch" class="btn btn-primary" disabled>[ LANCER LA PARTIE ]</button>
+      </div>
+      <p id="lobby-error" class="err-line" role="alert" aria-live="assertive"></p>
+      <p id="launch-block" class="launch-block" aria-live="polite"></p>
+    </div>
   </section>
 
   <!-- ================= ÉCRAN : JEU ================= -->
-  <section id="screen-game" class="screen">
+  <section id="screen-game" class="screen" aria-labelledby="h-game">
+    <h2 id="h-game" class="sr-only">Partie en cours</h2>
     <div id="map"></div>
 
-    <!-- Bandeau HUD haut -->
-    <div class="hud hud-top">
-      <div class="hud-cell">
-        <div class="hud-k">RÔLE</div>
-        <div id="hud-role" class="hud-v">—</div>
+    <!-- PILE HAUTE : HUD, instruments, puis voie d'alerte. Tout est empilé en
+         flux, donc RIEN ne peut plus en recouvrir autre chose. Avant, chaque
+         bloc était en position absolue à un offset fixe : pendant "FUYEZ !",
+         start-banner recouvrait la boussole ET le badge GPS — les deux
+         instruments dont un caché a besoin pour décider où courir. -->
+    <div class="hud-stack">
+      <div class="hud hud-top">
+        <div class="hud-cell">
+          <div class="hud-k">RÔLE</div>
+          <div id="hud-role" class="hud-v">—</div>
+        </div>
+        <div class="hud-cell">
+          <div class="hud-k">RAYON</div>
+          <div id="hud-radius" class="hud-v">—</div>
+        </div>
+        <div class="hud-cell">
+          <div class="hud-k" id="hud-timer-k">TEMPS</div>
+          <div id="hud-timer" class="hud-v">--:--</div>
+        </div>
+        <div class="hud-cell">
+          <div class="hud-k">RESTANTS</div>
+          <div id="hud-targets" class="hud-v">—</div>
+        </div>
       </div>
-      <div class="hud-cell">
-        <div class="hud-k">ZONE ⌀</div>
-        <div id="hud-radius" class="hud-v">—</div>
+
+      <!-- Instruments : jamais recouverts, jamais déplacés -->
+      <div class="status-row">
+        <div id="reveal-timer" class="reveal-timer hidden">
+          <span class="rt-k" id="rt-label">RÉVÉLATION</span>
+          <span id="rt-value" class="rt-v">--:--</span>
+        </div>
+        <div class="status-right">
+          <div id="gps-badge" class="gps-badge" role="status" aria-live="polite">GPS <span id="gps-acc">--</span></div>
+          <div id="net-badge" class="net-badge" role="status"><span class="net-dot" aria-hidden="true"></span><span id="net-text">LIÉ</span></div>
+        </div>
       </div>
-      <div class="hud-cell">
-        <div class="hud-k" id="hud-timer-k">TEMPS</div>
-        <div id="hud-timer" class="hud-v">--:--</div>
-      </div>
-      <div class="hud-cell">
-        <div class="hud-k">RESTANTS</div>
-        <div id="hud-targets" class="hud-v">—</div>
+
+      <!-- VOIE D'ALERTE UNIQUE : un seul bandeau prioritaire à la fois -->
+      <div id="alert-lane" class="alert-lane">
+        <div id="hud-shrink" class="hud-shrink">PROCHAIN RÉTRÉCISSEMENT DANS <span id="shrink-timer">--:--</span></div>
+
+        <!-- Interface de départ (phase de dispersion) — non bloquante, la carte reste visible -->
+        <div id="start-banner" class="start-banner hidden" role="status" aria-live="polite">
+          <div id="sb-title" class="sb-title">FUYEZ !</div>
+          <div id="sb-sub" class="sb-sub">Cachez-vous vite</div>
+          <div id="sb-timer" class="sb-timer">00:60</div>
+          <div id="sb-note" class="sb-note"></div>
+        </div>
+
+        <!-- Alerte : la zone va se fermer (cachés hors prochaine zone) -->
+        <div id="zone-closing" class="zone-closing hidden" role="alert" aria-live="assertive">
+          ⚠ ZONE SE FERME <span id="zc-timer">00:60</span> — REJOINS LA ZONE
+        </div>
+
+        <!-- Bannière : position du chasseur visible (décompte 30 s) -->
+        <div id="spot-banner" class="spot-banner hidden" role="status" aria-live="polite">
+          ▚ CHASSEUR VISIBLE <span id="spot-timer">00:30</span>
+        </div>
       </div>
     </div>
-
-    <!-- Sous-bandeau : prochain rétrécissement -->
-    <div id="hud-shrink" class="hud-shrink">PROCHAIN RÉTRÉCISSEMENT DANS <span id="shrink-timer">--:--</span></div>
-
-    <!-- Interface de départ (phase de dispersion) — non bloquante, la carte reste visible -->
-    <div id="start-banner" class="start-banner hidden">
-      <div id="sb-title" class="sb-title">FUYEZ !</div>
-      <div id="sb-sub" class="sb-sub">Cachez-vous vite</div>
-      <div id="sb-timer" class="sb-timer">00:60</div>
-      <div id="sb-note" class="sb-note"></div>
-    </div>
-
-    <!-- Badge GPS + état de connexion -->
-    <div id="gps-badge" class="gps-badge">GPS <span id="gps-acc">--</span></div>
-    <div id="net-badge" class="net-badge" title="État de la liaison"><span class="net-dot"></span><span id="net-text">LIÉ</span></div>
 
     <!-- Liste des joueurs (noms + rôles, aucune position) -->
     <div id="players-panel" class="players-panel hidden">
-      <div class="pp-head">OPÉRATEURS <button id="pp-close" class="pp-close">✕</button></div>
+      <div class="pp-head">OPÉRATEURS <button id="pp-close" class="pp-close" aria-label="Fermer la liste des opérateurs">✕</button></div>
       <ul id="pp-list" class="pp-list"></ul>
     </div>
 
-    <!-- Boussole (cachés) -->
+    <!-- Boussole (cachés) — en bas à gauche : dans la zone du pouce, et hors
+         de tout corridor de bandeau. -->
     <div id="compass" class="compass hidden">
       <div class="compass-ring">
         <div id="compass-needle" class="compass-needle"></div>
@@ -187,22 +272,11 @@
       <div class="compass-label">ZONE</div>
     </div>
 
-    <!-- Timer prochaine révélation (chasseur : révélation / caché : son signal) -->
-    <div id="reveal-timer" class="reveal-timer hidden">
-      <div class="rt-k" id="rt-label">RÉVÉLATION</div>
-      <div id="rt-value" class="rt-v">--:--</div>
-    </div>
-
-    <!-- Alerte : la zone va se fermer (cachés hors prochaine zone) -->
-    <div id="zone-closing" class="zone-closing hidden">
-      ⚠ ZONE SE FERME <span id="zc-timer">00:60</span> — REJOINS LA ZONE
-    </div>
-
     <!-- Chat rapide -->
     <div id="chat-log" class="chat-log"></div>
 
     <!-- Recentrer la carte sur soi -->
-    <button id="btn-recenter" class="recenter" title="Recentrer">⌖</button>
+    <button id="btn-recenter" class="recenter" aria-label="Recentrer la carte sur ma position">⌖</button>
 
     <!-- Barre d'actions bas -->
     <div class="action-bar">
@@ -210,21 +284,21 @@
       <button id="btn-scan" class="act hidden">ÉLIMINER</button>
       <button id="btn-radar" class="act hidden">RADAR</button>
       <button id="btn-chat" class="act">CHAT<span id="chat-badge" class="chat-badge hidden">0</span></button>
-      <button id="btn-players" class="act">ÉQUIPES</button>
+      <button id="btn-players" class="act" aria-pressed="false">ÉQUIPES</button>
     </div>
 
     <!-- Alerte hors-zone plein écran -->
-    <div id="zone-alert" class="zone-alert hidden">
+    <div id="zone-alert" class="zone-alert hidden" role="alert" aria-live="assertive">
       <div class="za-inner">
         <div class="za-title">⚠ HORS ZONE</div>
         <div class="za-sub">REVIENS DANS LA ZONE SÛRE</div>
         <div id="za-countdown" class="za-count">10</div>
-        <div class="za-note">CONVERSION FORCÉE À 0</div>
+        <div class="za-note">À 0 TU DEVIENS CHASSEUR</div>
       </div>
     </div>
 
     <!-- Alerte "repéré au radar" (flash bref, cachés) -->
-    <div id="spot-alert" class="spot-alert hidden">
+    <div id="spot-alert" class="spot-alert hidden" role="alert" aria-live="assertive">
       <div class="sa-inner">
         <div class="sa-title">▚ REPÉRÉ</div>
         <div class="sa-sub" id="sa-sub">UN CHASSEUR T'A LOCALISÉ AU RADAR</div>
@@ -232,15 +306,24 @@
       </div>
     </div>
 
-    <!-- Bannière : position du chasseur visible (décompte 30 s) -->
-    <div id="spot-banner" class="spot-banner hidden">
-      ▚ CHASSEUR VISIBLE <span id="spot-timer">00:30</span>
+    <!-- Capture : le climax du jeu. Il recevait un toast de 13 px pendant que
+         l'interface se réorganisait en silence autour du joueur. -->
+    <div id="capture-alert" class="capture-alert hidden" role="alert" aria-live="assertive">
+      <div class="ca-inner">
+        <div class="ca-title">CAPTURÉ</div>
+        <div class="ca-by" id="ca-by">—</div>
+        <div class="ca-hand">TU DEVIENS CHASSEUR</div>
+        <div class="ca-note" id="ca-note">Ta cible : les cachés encore en jeu. Scanne leur QR code.</div>
+        <button id="ca-ok" type="button" class="btn btn-primary">[ COMPRIS ]</button>
+      </div>
     </div>
   </section>
 
   <!-- ================= ÉCRAN : FIN ================= -->
-  <section id="screen-end" class="screen">
+  <section id="screen-end" class="screen" aria-labelledby="h-end">
+    <h2 id="h-end" class="sr-only">Fin de partie</h2>
     <div class="end-wrap">
+      <div id="end-personal" class="end-personal">—</div>
       <div id="end-banner" class="end-banner">FIN DE PARTIE</div>
       <div class="panel bracket">
         <div class="mini-label">DÉBRIEFING</div>
@@ -259,34 +342,36 @@
   </section>
 
   <!-- ================= MODALES ================= -->
-  <div id="modal-qr" class="modal hidden">
+  <div id="modal-qr" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-qr">
     <div class="modal-card bracket">
-      <div class="modal-title">MON CODE D’IDENTITÉ</div>
+      <div class="modal-title" id="mt-qr">MON CODE D’IDENTITÉ</div>
       <div class="modal-sub">Un chasseur doit scanner ceci pour t’éliminer.</div>
-      <canvas id="qr-canvas" width="240" height="240"></canvas>
+      <canvas id="qr-canvas" width="240" height="240" aria-label="Ton QR code d’identité"></canvas>
+      <div id="qr-error" class="qr-error hidden" role="alert"></div>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
     </div>
   </div>
 
-  <div id="modal-scan" class="modal hidden">
+  <div id="modal-scan" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-scan">
     <div class="modal-card bracket scan-card">
-      <div class="modal-title">SCAN CIBLE</div>
+      <div class="modal-title" id="mt-scan">SCAN CIBLE</div>
       <div class="scan-view">
         <video id="scan-video" playsinline muted></video>
-        <div class="scan-reticle"></div>
+        <div class="scan-reticle" aria-hidden="true"></div>
       </div>
-      <div id="scan-status" class="modal-sub">Vise le QR code de la cible…</div>
+      <div id="scan-status" class="modal-sub" role="status" aria-live="polite">Vise le QR code de la cible…</div>
       <button class="btn btn-ghost btn-sm modal-close">[ ANNULER ]</button>
     </div>
   </div>
 
-  <div id="modal-chat" class="modal hidden">
+  <div id="modal-chat" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-chat">
     <div class="modal-card bracket chat-card">
-      <div class="modal-title">CHAT GLOBAL</div>
+      <div class="modal-title" id="mt-chat">CHAT GLOBAL</div>
       <div class="modal-sub">Visible par tous les opérateurs de la partie.</div>
-      <div id="chat-messages" class="chat-messages"></div>
+      <div id="chat-messages" class="chat-messages" role="log" aria-live="polite"></div>
       <form id="chat-form" class="chat-form" autocomplete="off">
-        <input id="chat-input" type="text" maxlength="200" placeholder="Écris un message…" />
+        <label class="sr-only" for="chat-input">Message à envoyer</label>
+        <input id="chat-input" type="text" maxlength="200" placeholder="Écris un message…" enterkeyhint="send" />
         <button type="submit" class="btn btn-sm">[ ENVOYER ]</button>
       </form>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
@@ -294,7 +379,7 @@
   </div>
 
   <!-- Confirmation générique (quitter une partie, etc.) -->
-  <div id="modal-confirm" class="modal hidden">
+  <div id="modal-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <div class="modal-card bracket">
       <div class="modal-title" id="confirm-title">CONFIRMER</div>
       <div class="modal-sub" id="confirm-text">Es-tu sûr ?</div>
@@ -304,9 +389,9 @@
   </div>
 
   <!-- Installation PWA (plein écran, sans barres de navigateur) -->
-  <div id="modal-install" class="modal hidden">
+  <div id="modal-install" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-install">
     <div class="modal-card bracket">
-      <div class="modal-title">INSTALLER TRAQUE</div>
+      <div class="modal-title" id="mt-install">INSTALLER TRAQUE</div>
       <div class="modal-sub">En plein écran, sans les barres du navigateur — plus stable pendant une partie.</div>
       <div id="install-ios" class="install-steps hidden">
         <p>Sur iPhone (Safari) :</p>
@@ -319,13 +404,13 @@
   </div>
 
   <!-- Toasts -->
-  <div id="toasts" class="toasts"></div>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
-  <!-- Libs externes (vanilla, pas de build step) -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <!-- Libs auto-hébergées (vanilla, pas de build step).
+       jsQR (257 ko) n'est chargé qu'à l'ouverture du scan : seuls les chasseurs
+       en ont besoin, et jamais avant d'appuyer sur ÉLIMINER. -->
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/vendor/qrcode.js"></script>
   <script src="/socket.io/socket.io.js"></script>
 
   <!-- Modules applicatifs -->

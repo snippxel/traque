@@ -5,7 +5,7 @@
  * "network-first" pour la coquille statique. Le cache ne sert QUE de repli quand
  * le réseau est indisponible — jamais pour figer une version périmée.
  */
-const CACHE = 'traque-shell-v12';
+const CACHE = 'traque-shell-v13';
 const SHELL = [
   '/',
   '/index.html',
@@ -16,10 +16,32 @@ const SHELL = [
   '/js/sensors.js',
   '/manifest.webmanifest',
   '/icons/icon.svg',
+  // Libs et polices auto-hébergées. Elles venaient de unpkg / jsDelivr /
+  // fonts.gstatic.com, qu'on ne pouvait PAS mettre en cache (cross-origin).
+  // Conséquences vécues sur un réseau qui saute : sans Leaflet l'écran de jeu
+  // ne s'affichait pas du tout, sans qrcode le QR d'identité restait blanc
+  // (donc le joueur ne pouvait jamais être capturé), sans jsQR le scan tournait
+  // dans le vide. Tout est local maintenant, donc tout est mis en cache.
+  '/vendor/leaflet.css',
+  '/vendor/leaflet.js',
+  '/vendor/qrcode.js',
+  '/vendor/jsQR.js',
+  '/vendor/fonts.css',
+  '/vendor/fonts/share-tech-mono-400.woff2',
+  '/vendor/fonts/rajdhani-500.woff2',
+  '/vendor/fonts/rajdhani-600.woff2',
+  '/vendor/fonts/rajdhani-700.woff2',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // addAll() est atomique : une seule ressource en échec annule TOUT le cache et
+  // laisse le joueur sans repli hors-ligne. On met donc en cache fichier par
+  // fichier, pour qu'un échec isolé n'emporte pas les autres.
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(SHELL.map((url) => c.add(url).catch(() => {}))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {

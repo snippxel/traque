@@ -8,7 +8,10 @@
   --bg-2:      #080d12;
   --panel:     rgba(10, 18, 22, 0.82);
   --panel-solid: #0a1216;
-  --line:      rgba(57, 255, 140, 0.14);
+  /* 0.14 donnait 1,31:1 contre le fond : au soleil, les quatre cellules du HUD
+     se lisaient comme une bande indifférenciée et les bordures des onze champs
+     du formulaire étaient invisibles. --line délimite tout, il doit se voir. */
+  --line:      rgba(57, 255, 140, 0.30);
   --line-soft: rgba(57, 255, 140, 0.07);
 
   --phos:      #4dffa1;   /* vert phosphore (cachés / soi / OK) */
@@ -29,6 +32,51 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* Titres de section pour les lecteurs d'écran : le document entier n'avait
+   qu'un seul titre (le H1 de l'accueil), lobby / jeu / fin n'en avaient aucun. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Aucun style de focus n'était écrit pour les <button> : les 27 boutons du jeu,
+   dont LANCER LA PARTIE et ÉLIMINER, étaient atteignables au clavier sans le
+   moindre indicateur visible. Et le flash tactile natif est supprimé
+   globalement plus haut, donc il n'y avait rien non plus au toucher. */
+:focus-visible {
+  outline: 2px solid var(--phos);
+  outline-offset: 2px;
+}
+.act:focus-visible, .pp-close:focus-visible, .recenter:focus-visible {
+  outline-offset: -3px;
+}
+
+/* Le jeu clignote : deux stroboscopes plein écran en steps(2) à 1,4 et 1,8 Hz,
+   un balayage de scan, des marqueurs pulsants, un réticule qui tourne en
+   permanence. Sous le seuil épileptogène de 3 Hz, donc légal — mais rien ne
+   permettait d'y échapper. Les alertes restent visibles, elles cessent juste
+   de battre : on remplace le clignotement par un fond fixe. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .zone-alert { background: rgba(150, 0, 15, .5) !important; }
+  .spot-alert { background: rgba(255, 176, 0, .22) !important; }
+  .zone-closing { background: rgba(90, 0, 10, .95) !important; }
+  .reticle { animation: none !important; }
+}
+
+/* Les :hover collent après un tap sur plusieurs navigateurs mobiles, et ce
+   produit est exclusivement mobile. */
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover { background: rgba(77,255,161,0.1); box-shadow: var(--glow); }
+  .btn-ghost:hover { color: var(--ink); box-shadow: none; background: rgba(255,255,255,0.03); }
+  .act:hover { background: rgba(77,255,161,.08); }
+}
 
 html, body {
   margin: 0; height: 100%;
@@ -55,21 +103,25 @@ body {
 
 /* Écran bas (paysage sur téléphone) : on compacte le HUD et la barre d'actions
    pour qu'ils restent visibles au lieu de déborder hors de l'écran. */
+/* La pile haute est en flux : plus aucun `top` à recaler ici, on compacte
+   seulement. Les tailles ne descendent plus sous 11 px, y compris en paysage —
+   c'est le même œil qui lit, dans les mêmes conditions. */
 @media (max-height: 480px) {
-  .hud-cell { padding: 3px 4px; }
-  .hud-k { font-size: 8px; letter-spacing: 1px; }
-  .hud-v { font-size: 15px; }
-  .act { padding: 9px 4px 10px; font-size: 12px; }
-  .hud-shrink { top: 40px; font-size: 9px; padding: 2px 8px; }
-  .gps-badge { top: 62px; }
-  .compass, .reveal-timer { top: 62px; }
-  .reveal-timer.hider { top: 128px; }
-  .start-banner { top: 46px; padding: 6px 10px; }
+  .hud-stack { gap: 4px; }
+  .hud-cell { padding: 4px; }
+  .hud-k { font-size: 11px; letter-spacing: 1px; }
+  .hud-v { font-size: 17px; }
+  .act { padding: 12px 4px 13px; font-size: 12px; }
+  .hud-shrink { font-size: 11px; padding: 3px 9px; }
+  .start-banner { padding: 6px 10px; }
   .sb-title { font-size: 20px; letter-spacing: 3px; }
   .sb-timer { font-size: 22px; margin-top: 2px; }
-  .sb-sub, .sb-note { font-size: 9px; }
-  .recenter { bottom: 52px; width: 38px; height: 38px; font-size: 18px; }
-  .chat-log { bottom: 52px; }
+  .sb-sub, .sb-note { font-size: 11px; }
+  .compass { bottom: 52px; width: 54px; }
+  .compass-ring { width: 54px; height: 54px; }
+  .recenter { bottom: 52px; }
+  .chat-log { bottom: 52px; left: 74px; }
+  .toasts { bottom: 118px; }
 }
 
 /* --- Décors globaux --- */
@@ -81,8 +133,12 @@ body {
   background-size: 42px 42px;
   mask-image: radial-gradient(ellipse at 50% 40%, #000 40%, transparent 100%);
 }
+/* Les scanlines étaient à z-index 60, donc AU-DESSUS du HUD (20) et de la barre
+   d'actions (20) : le filtre CRT multipliait chaque chiffre critique du jeu et
+   coûtait du contraste sur un écran lu en plein soleil. L'effet reste, il passe
+   simplement derrière l'interface au lieu de la traverser. */
 .scanlines {
-  position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  position: fixed; inset: 0; z-index: 5; pointer-events: none;
   background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.16) 2px 3px);
   mix-blend-mode: multiply; opacity: 0.5;
 }
@@ -127,7 +183,7 @@ body {
   font-family: var(--disp); font-weight: 700; font-size: 58px; letter-spacing: 12px;
   margin: 0; color: var(--white); text-shadow: var(--glow);
 }
-.brand-sub { color: var(--phos-dim); letter-spacing: 3px; font-size: 12px; margin: 4px 0 0; }
+.brand-sub { color: var(--phos); letter-spacing: 1.5px; font-size: 12px; margin: 4px 0 0; }
 
 .field { display: block; margin: 14px 0; }
 .field-label, .mini-label { display: block; font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); margin-bottom: 6px; text-transform: uppercase; }
@@ -145,20 +201,20 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
   font-family: var(--mono); font-size: 15px; letter-spacing: 2px; padding: 13px 16px;
   text-transform: uppercase; transition: background .12s, box-shadow .12s, color .12s;
 }
-.btn:hover { background: rgba(77,255,161,0.1); box-shadow: var(--glow); }
 .btn:active { transform: translateY(1px); }
 .btn-primary { background: rgba(77,255,161,0.14); box-shadow: var(--glow); font-weight: 700; }
 .btn-primary:disabled { color: var(--ink-dim); border-color: var(--line); background: transparent; box-shadow: none; cursor: not-allowed; opacity: .6; }
 .btn-ghost { border-color: var(--line); color: var(--ink-dim); }
-.btn-ghost:hover { color: var(--ink); box-shadow: none; background: rgba(255,255,255,0.03); }
-.btn-sm { width: auto; display: inline-block; font-size: 12px; padding: 8px 12px; }
+/* 32 px de haut : sous le plancher tactile de 44 px, et ce sont les boutons
+   FERMER / ANNULER / ENVOYER / QUITTER, tapés avec le pouce en mouvement. */
+.btn-sm { width: auto; display: inline-block; font-size: 13px; padding: 12px 14px; min-height: 44px; }
 
 .sep { text-align: center; margin: 18px 0; position: relative; color: var(--ink-dim); font-size: 12px; }
 .sep::before { content:''; position:absolute; top:50%; left:0; right:0; height:1px; background: var(--line); }
 .sep span { background: var(--bg); padding: 0 12px; position: relative; }
 
 .err-line { color: var(--danger); min-height: 18px; font-size: 13px; margin: 10px 2px; text-align: center; letter-spacing: 1px; }
-.foot-note { color: var(--ink-dim); font-size: 11px; text-align: center; margin-top: 22px; letter-spacing: 1px; }
+.foot-note { color: var(--ink-dim); font-size: 12px; text-align: center; margin-top: 22px; letter-spacing: 0; line-height: 1.5; }
 
 /* ============================== LOBBY ============================== */
 .lobby-wrap { max-width: 520px; margin: 0 auto; padding: 24px 18px 60px; display: grid; gap: 16px; }
@@ -176,14 +232,17 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .roster li .r-role { font-size: 11px; letter-spacing: 1px; padding: 2px 8px; border: 1px solid; }
 .r-role.hunter { color: var(--amber); border-color: var(--amber-dim); }
 .r-role.hider  { color: var(--phos); border-color: var(--phos-dim); }
-.r-host { font-size: 10px; color: var(--amber); letter-spacing: 1px; }
+.r-host { font-size: 11px; color: var(--amber); letter-spacing: 1px; }
 
 .role-mode { display: flex; gap: 8px; margin-bottom: 8px; }
-.role-mode .btn.active, .btn.active { background: rgba(77,255,161,0.14); box-shadow: var(--glow); color: var(--phos); }
+/* `.btn.active` non scopé s'appliquait à N'IMPORTE QUEL élément portant les deux
+   classes, où qu'il soit. */
+.role-mode .btn.active, .preset-row .btn.active { background: rgba(77,255,161,0.14); box-shadow: var(--glow); color: var(--phos); }
 .manual-assign { display: grid; gap: 6px; margin-bottom: 8px; }
 .manual-assign .ma-row { display: flex; align-items: center; gap: 8px; background: var(--bg-2); padding: 7px 10px; }
 .manual-assign .ma-row .ma-name { flex: 1; }
-.manual-assign .ma-toggle { border: 1px solid var(--line); color: var(--ink-dim); padding: 4px 10px; font-size: 11px; cursor: pointer; background: transparent; font-family: var(--mono); }
+/* 52 × 23 px, et l'hôte la tape jusqu'à douze fois de suite. */
+.manual-assign .ma-toggle { border: 1px solid var(--line); color: var(--ink-dim); padding: 10px 12px; min-height: 44px; min-width: 96px; font-size: 12px; cursor: pointer; background: transparent; font-family: var(--mono); }
 .manual-assign .ma-toggle.hunter { color: var(--amber); border-color: var(--amber); }
 .manual-assign .ma-toggle.hider { color: var(--phos); border-color: var(--phos); }
 
@@ -193,7 +252,7 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .cfg input { padding: 9px 10px; font-size: 15px; }
 .mt { margin-top: 14px; }
 
-.check-line { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 13px; color: var(--ink); line-height: 1.4; cursor: pointer; }
+.check-line { display: flex; gap: 10px; align-items: center; margin-top: 14px; min-height: 44px; padding: 6px 0; font-size: 13px; color: var(--ink); line-height: 1.4; cursor: pointer; }
 .check-line input { width: 20px; height: 20px; accent-color: var(--phos); flex: none; margin-top: 1px; }
 .danger-check { border: 1px dashed var(--danger-dim); padding: 10px; color: var(--white); }
 .danger-check input { accent-color: var(--danger); }
@@ -207,71 +266,103 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 /* ============================== JEU ============================== */
 #map { position: absolute; inset: 0; z-index: 0; background: #04070b; }
 .leaflet-container { background: #04070b; font-family: var(--mono); }
-.leaflet-control-attribution { background: rgba(0,0,0,.5) !important; color: #4a5a55 !important; font-size: 9px; }
-.leaflet-control-attribution a { color: #6f8c81 !important; }
+/* L'attribution OpenStreetMap / CARTO était rendue puis recouverte à 100 % par
+   la barre d'actions, à 2,82:1. C'est une exigence contractuelle des fonds
+   CARTO : on la remonte au-dessus de la barre et on la rend lisible. */
+.leaflet-bottom.leaflet-right { bottom: 54px; }
+.leaflet-control-attribution { background: rgba(5,9,12,.85) !important; color: var(--ink-dim) !important; font-size: 11px; padding: 2px 6px !important; }
+.leaflet-control-attribution a { color: var(--phos-dim) !important; }
 .leaflet-control-zoom { display: none; }
 
-.hud { position: absolute; top: 0; left: 0; right: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
+/* Pile haute en FLUX : HUD, instruments, alertes. Plus aucun recouvrement
+   possible entre les trois — c'est garanti par la structure, pas par des
+   offsets fixes qu'il faut maintenir à la main. */
+.hud-stack { position: absolute; top: 0; left: 0; right: 0; z-index: 20; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.hud-stack > * { pointer-events: auto; }
+
+.hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
 .hud-cell { background: rgba(5, 9, 12, 0.88); padding: 8px 6px; text-align: center; backdrop-filter: blur(2px); }
-.hud-k { font-size: 9px; letter-spacing: 2px; color: var(--ink-dim); }
-.hud-v { font-family: var(--disp); font-size: 20px; font-weight: 700; color: var(--white); letter-spacing: 1px; line-height: 1.1; }
+/* 9 px de monospace lu à bout de bras, en courant, essoufflé : le principe
+   produit dit "lisible en deux secondes, en courant". 27 déclarations du
+   stylesheet étaient sous 12 px, la plus petite à 8 px. */
+.hud-k { font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); }
+.hud-v { font-family: var(--disp); font-size: 22px; font-weight: 700; color: var(--white); letter-spacing: 1px; line-height: 1.1; }
+
+/* Rangée d'instruments : à gauche le timer de révélation, à droite l'état GPS
+   et la liaison. Toujours visibles, jamais recouverts. */
+.status-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 10px; }
+/* margin-left auto : le timer de révélation est masqué pendant la dispersion,
+   et sans ça les badges glissaient à gauche au lieu de rester à droite. */
+.status-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: auto; }
 .hud-v.hunter { color: var(--amber); text-shadow: var(--glow-amber); }
 .hud-v.hider  { color: var(--phos); text-shadow: var(--glow); }
 .hud-v.danger { color: var(--danger); }
 
-.hud-shrink { position: absolute; top: 62px; left: 50%; transform: translateX(-50%); z-index: 20;
-  background: rgba(5,9,12,.85); border: 1px solid var(--danger-dim); color: var(--danger);
-  font-size: 10px; letter-spacing: 2px; padding: 4px 12px; white-space: nowrap; }
+/* Voie d'alerte : une colonne centrée, un bandeau visible à la fois (l'arbitre
+   est dans app.js). Empilement en flux = pas de superposition. */
+.alert-lane { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 10px; }
+.alert-lane > * { max-width: 100%; }
+
+.hud-shrink { background: rgba(5,9,12,.92); border: 1px solid var(--danger); color: var(--danger);
+  font-size: 12px; letter-spacing: 2px; padding: 5px 12px; white-space: nowrap; }
 .hud-shrink span { color: var(--white); }
 
-.gps-badge { position: absolute; top: 92px; right: 10px; z-index: 20; background: rgba(5,9,12,.8);
-  border: 1px solid var(--line); color: var(--phos); font-size: 11px; letter-spacing: 1px; padding: 4px 8px; }
-.gps-badge.warn { color: var(--amber); border-color: var(--amber-dim); }
-.gps-badge.bad { color: var(--danger); border-color: var(--danger-dim); }
+.gps-badge { background: rgba(5,9,12,.88);
+  border: 1px solid var(--line); color: var(--phos); font-size: 12px; letter-spacing: 1px; padding: 5px 9px; white-space: nowrap; }
+.gps-badge.warn { color: var(--amber); border-color: var(--amber); }
+/* Position perdue ou refusée : rouge, permanent, et il le RESTE. C'était vert
+   phosphore — la couleur "tout va bien" — tant qu'aucune précision numérique
+   n'était arrivée, y compris avec la géolocalisation refusée. */
+.gps-badge.bad { color: var(--danger); border-color: var(--danger); background: rgba(40,0,6,.92); font-weight: 700; }
 
-/* Interface de départ (phase de dispersion) — bandeau non bloquant en haut */
-.start-banner { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); z-index: 22;
-  width: min(90%, 420px); text-align: center; background: rgba(5,9,12,.9); border: 1px solid var(--phos);
+/* Interface de départ (phase de dispersion) — dans la voie d'alerte */
+.start-banner { width: min(100%, 420px); text-align: center; background: rgba(5,9,12,.92); border: 1px solid var(--phos);
   box-shadow: var(--glow); padding: 12px 14px; backdrop-filter: blur(2px); }
 .start-banner.hunter { border-color: var(--amber); box-shadow: var(--glow-amber); }
 .sb-title { font-family: var(--disp); font-weight: 700; font-size: 30px; letter-spacing: 5px; color: var(--phos); text-shadow: var(--glow); line-height: 1; }
 .start-banner.hunter .sb-title { color: var(--amber); text-shadow: var(--glow-amber); }
-.sb-sub { font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); margin-top: 4px; text-transform: uppercase; }
+.sb-sub { font-size: 12px; letter-spacing: 2px; color: var(--ink); margin-top: 4px; text-transform: uppercase; }
 .sb-timer { font-family: var(--disp); font-weight: 700; font-size: 34px; letter-spacing: 2px; color: var(--white); margin-top: 6px; font-variant-numeric: tabular-nums; }
-.sb-note { font-size: 10px; letter-spacing: 1.5px; margin-top: 4px; min-height: 12px; }
+.sb-note { font-size: 12px; letter-spacing: 1.5px; margin-top: 5px; min-height: 14px; }
 .sb-note.live { color: var(--danger); }
-.sb-note.safe { color: var(--phos-dim); }
+.sb-note.safe { color: var(--phos); }
 
-/* Timer prochaine révélation (chasseurs) */
-.reveal-timer { position: absolute; top: 92px; left: 10px; z-index: 20; background: rgba(5,9,12,.82);
-  border: 1px solid var(--line); padding: 5px 9px; text-align: center; }
-.reveal-timer .rt-k { font-size: 8px; letter-spacing: 1.5px; color: var(--ink-dim); }
-.reveal-timer .rt-v { font-family: var(--disp); font-size: 17px; font-weight: 700; color: #8895a0; letter-spacing: 1px; line-height: 1.1; }
+/* Timer prochaine révélation — sur une ligne, dans la rangée d'instruments */
+.reveal-timer { display: flex; align-items: baseline; gap: 7px; background: rgba(5,9,12,.88);
+  border: 1px solid var(--line); padding: 5px 9px; }
+.reveal-timer .rt-k { font-size: 11px; letter-spacing: 1.5px; color: var(--ink-dim); }
+.reveal-timer .rt-v { font-family: var(--disp); font-size: 18px; font-weight: 700; color: var(--ink); letter-spacing: 1px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .reveal-timer.soon .rt-v { color: var(--phos); text-shadow: var(--glow); }
-/* Côté caché : sous la boussole, et l'imminence est une ALERTE (sa position va fuiter) */
-.reveal-timer.hider { top: 184px; }
+/* Côté caché, l'imminence est une ALERTE : sa position va fuiter */
 .reveal-timer.hider.soon .rt-v { color: var(--amber); text-shadow: var(--glow-amber); }
 
-/* Alerte fermeture de zone (cachés hors prochaine zone) — sous la bannière "chasseur visible" */
-.zone-closing { position: absolute; top: 152px; left: 50%; transform: translateX(-50%); z-index: 21;
-  background: rgba(40,0,4,.9); border: 1px solid var(--danger); color: #fff; box-shadow: 0 0 12px var(--danger);
-  font-family: var(--mono); font-size: 11px; letter-spacing: 1.5px; padding: 6px 14px; white-space: nowrap;
+/* Alerte fermeture de zone (cachés hors prochaine zone) */
+.zone-closing { background: rgba(40,0,4,.94); border: 1px solid var(--danger); color: #fff; box-shadow: 0 0 12px var(--danger);
+  font-family: var(--mono); font-size: 13px; letter-spacing: 1.5px; padding: 7px 14px; text-align: center;
   animation: redflash .7s steps(2) infinite; }
 .zone-closing span { color: var(--danger); font-weight: 700; }
 
-/* Boussole */
-.compass { position: absolute; top: 92px; left: 10px; z-index: 20; width: 68px; text-align: center; }
-.compass-ring { width: 68px; height: 68px; border: 2px solid var(--line); border-radius: 50%; position: relative; background: rgba(5,9,12,.7); box-shadow: inset 0 0 10px rgba(0,0,0,.6); }
+/* Boussole : en bas à gauche, au-dessus de la barre d'actions. Elle était en
+   haut à gauche, exactement sous le corridor des bandeaux — pendant "FUYEZ !"
+   elle disparaissait derrière le bandeau de départ. */
+.compass { position: absolute; left: 10px; bottom: 58px; z-index: 20; width: 68px; text-align: center; }
+.compass-ring { width: 68px; height: 68px; border: 2px solid var(--line); border-radius: 50%; position: relative; background: rgba(5,9,12,.8); box-shadow: inset 0 0 10px rgba(0,0,0,.6); }
 .compass-needle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform-origin: 50% 100%;
   border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 26px solid var(--phos);
   transform: translate(-50%, -100%); filter: drop-shadow(var(--glow)); transition: transform .18s linear; }
-.compass-label { font-size: 9px; color: var(--ink-dim); letter-spacing: 2px; margin-top: 2px; }
+/* Sans position fraîche, l'aiguille restait affichée avec un transform vide :
+   une flèche confiante qui ne pointait nulle part. */
+.compass.stale .compass-needle { display: none; }
+.compass.stale .compass-ring::after { content: '?'; position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--danger); font-size: 26px; font-weight: 700; }
+.compass.stale .compass-label { color: var(--danger); }
+.compass-label { font-size: 11px; color: var(--ink); letter-spacing: 2px; margin-top: 3px;
+  background: rgba(5,9,12,.8); padding: 1px 4px; }
 
 /* Barre d'actions */
 .action-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; gap: 1px; background: var(--line); }
 .act { flex: 1; background: rgba(5,9,12,.9); border: 0; border-top: 1px solid var(--line); color: var(--ink);
   font-family: var(--mono); font-size: 13px; letter-spacing: 1px; padding: 15px 4px 18px; cursor: pointer; text-transform: uppercase; }
-.act:hover { background: rgba(77,255,161,.08); }
 .act:active { transform: translateY(1px); }
 #btn-scan { color: var(--danger); }
 #btn-radar { color: var(--amber); }
@@ -289,9 +380,9 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .leaflet-marker-icon { transition: transform .9s linear; }
 .leaflet-zoom-anim .leaflet-marker-icon { transition: none; }
 
-/* Chat log flottant */
-.chat-log { position: absolute; left: 10px; bottom: 74px; z-index: 19; display: grid; gap: 5px; max-width: 70%; pointer-events: none; }
-.chat-bubble { background: rgba(5,9,12,.86); border-left: 3px solid var(--phos); padding: 5px 10px; font-size: 12px; letter-spacing: .5px; animation: fadeup .3s; }
+/* Chat log flottant — à droite de la boussole, à gauche du recentrage */
+.chat-log { position: absolute; left: 88px; right: 62px; bottom: 58px; z-index: 19; display: grid; gap: 5px; pointer-events: none; }
+.chat-bubble { background: rgba(5,9,12,.9); border: 1px solid var(--line); border-left: 3px solid var(--phos); padding: 6px 10px; font-size: 13px; letter-spacing: .5px; animation: fadeup .3s; }
 .chat-bubble.hunter { border-color: var(--amber); }
 .chat-bubble b { color: var(--white); }
 @keyframes fadeup { from { opacity: 0; transform: translateY(8px);} to { opacity:1; transform:none;} }
@@ -314,20 +405,18 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .sa-note { color: var(--amber); letter-spacing: 2px; font-size: 12px; margin-top: 14px; }
 
 /* Bannière : chasseur visible (contre-révélation 30 s) */
-.spot-banner { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); z-index: 21;
-  background: rgba(5,9,12,.92); border: 1px solid var(--amber); color: var(--amber); box-shadow: var(--glow-amber);
-  font-family: var(--mono); font-size: 12px; letter-spacing: 2px; padding: 6px 14px; white-space: nowrap; }
+.spot-banner { background: rgba(5,9,12,.94); border: 1px solid var(--amber); color: var(--amber); box-shadow: var(--glow-amber);
+  font-family: var(--mono); font-size: 13px; letter-spacing: 2px; padding: 7px 14px; white-space: nowrap; }
 .spot-banner span { color: var(--white); }
 
 /* Aperçu de la zone dans le lobby */
 .lobby-actions { display: flex; gap: 6px; }
-.lobby-map { height: 190px; border: 1px solid var(--line); background: #04070b; margin-top: 8px; }
-.preview-hint { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; margin-top: 8px; }
+.preview-hint { font-size: 12px; color: var(--ink); letter-spacing: 0; margin-top: 8px; line-height: 1.4; }
 .preview-hint.ok { color: var(--phos-dim); }
 
 /* État de la liaison réseau */
-.net-badge { position: absolute; top: 118px; right: 10px; z-index: 20; display: flex; align-items: center; gap: 5px;
-  background: rgba(5,9,12,.8); border: 1px solid var(--line); padding: 3px 7px; font-size: 9px; letter-spacing: 1px; color: var(--ink-dim); }
+.net-badge { display: flex; align-items: center; gap: 5px;
+  background: rgba(5,9,12,.88); border: 1px solid var(--line); padding: 4px 8px; font-size: 11px; letter-spacing: 1px; color: var(--ink); white-space: nowrap; }
 .net-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--phos); box-shadow: var(--glow); }
 .net-badge.warn { border-color: var(--amber-dim); color: var(--amber); }
 .net-badge.warn .net-dot { background: var(--amber); box-shadow: var(--glow-amber); animation: pulse .8s infinite; }
@@ -336,12 +425,12 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 
 /* Badge de messages non lus sur le bouton CHAT */
 #btn-chat { position: relative; }
-.chat-badge { position: absolute; top: 6px; right: 50%; transform: translateX(22px); min-width: 16px; height: 16px;
-  background: var(--danger); color: #fff; border-radius: 8px; font-size: 10px; line-height: 16px; padding: 0 4px;
+.chat-badge { position: absolute; top: 6px; right: 50%; transform: translateX(22px); min-width: 18px; height: 18px;
+  background: var(--danger); color: #fff; border-radius: 9px; font-size: 11px; line-height: 18px; padding: 0 4px;
   font-family: var(--mono); box-shadow: 0 0 8px var(--danger); }
 
 /* Panneau liste des joueurs */
-.players-panel { position: absolute; top: 118px; left: 10px; right: 10px; z-index: 30; max-height: 55%;
+.players-panel { position: absolute; top: 96px; left: 10px; right: 10px; z-index: 30; max-height: 55%;
   background: rgba(5,9,12,.95); border: 1px solid var(--line); backdrop-filter: blur(3px); display: flex; flex-direction: column; }
 .pp-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
   border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: 2px; color: var(--ink-dim); }
@@ -350,10 +439,10 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .pp-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-2); font-size: 12px; }
 .pp-list .pp-name { flex: 1; color: var(--white); letter-spacing: .5px; }
 .pp-list li.off .pp-name { color: var(--ink-dim); text-decoration: line-through; }
-.pp-list .pp-role { font-size: 9px; letter-spacing: 1px; padding: 2px 6px; border: 1px solid; }
+.pp-list .pp-role { font-size: 11px; letter-spacing: 1px; padding: 2px 6px; border: 1px solid; }
 .pp-role.hunter { color: var(--amber); border-color: var(--amber-dim); }
 .pp-role.hider { color: var(--phos); border-color: var(--phos-dim); }
-.pp-me { font-size: 9px; color: var(--amber); }
+.pp-me { font-size: 11px; color: var(--amber); }
 
 .install-steps { text-align: left; font-size: 13px; color: var(--ink); line-height: 1.6; margin-bottom: 14px; }
 .install-steps p { margin: 4px 0; }
@@ -361,17 +450,36 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 
 /* ============================== FIN ============================== */
 .end-wrap { max-width: 640px; margin: 0 auto; padding: 6vh 18px 60px; display: grid; gap: 18px; }
+/* Les enfants d'une grille ont min-width: auto : la table en white-space:nowrap
+   poussait le panneau à sa largeur intrinsèque, .table-scroll ne s'activait
+   jamais, et l'écran débordait de 123 px à 375 px — bandeau et bouton REJOUER
+   coupés, sur l'écran justement fait pour être regardé à six autour du téléphone. */
+.end-wrap > * { min-width: 0; }
+
+/* Le bandeau annonçait l'équipe gagnante, jamais ce qui t'était arrivé à TOI.
+   Comme un caché capturé devient chasseur, un joueur éliminé à la deuxième
+   minute lisait "VICTOIRE DES CHASSEURS" et avait donc techniquement gagné. */
+.end-personal { font-family: var(--disp); font-weight: 700; font-size: 26px; letter-spacing: 3px;
+  text-align: center; color: var(--ink-dim); }
+.end-personal.survived { color: var(--phos); text-shadow: var(--glow); }
+.end-personal.caught { color: var(--danger); }
+.end-personal.hunted { color: var(--amber); text-shadow: var(--glow-amber); }
+
 .end-banner { font-family: var(--disp); font-weight: 700; font-size: 34px; letter-spacing: 4px; text-align: center; padding: 18px; border: 1px solid var(--line); }
 .end-banner.hunters { color: var(--amber); text-shadow: var(--glow-amber); border-color: var(--amber-dim); }
 .end-banner.hiders { color: var(--phos); text-shadow: var(--glow); border-color: var(--phos-dim); }
 .table-scroll { overflow-x: auto; }
 .stats { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-.stats th { text-align: left; color: var(--ink-dim); font-size: 10px; letter-spacing: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.stats th { text-align: left; color: var(--ink-dim); font-size: 11px; letter-spacing: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .stats td { padding: 9px 8px; border-bottom: 1px solid var(--line-soft); color: var(--ink); letter-spacing: 1px; white-space: nowrap; }
-.stats tr.me td { color: var(--white); }
+/* Les deux lignes que tout le monde cherche en premier — la sienne et les
+   survivants — étaient signalées par des écarts de 1,19:1 et 1,07:1. Invisibles.
+   On les marque par une bordure, pas par une teinte. */
+.stats tr.me td { color: var(--white); background: rgba(77,255,161,0.10); font-weight: 700; }
+.stats tr.me td:first-child { box-shadow: inset 3px 0 0 var(--phos); }
 .stats .role-cell.hunter { color: var(--amber); }
 .stats .role-cell.hider { color: var(--phos); }
-.stats .survivor td { background: rgba(77,255,161,0.05); }
+.stats .survivor td:first-child::after { content: ' ✓'; color: var(--phos); }
 
 /* ============================== MODALES ============================== */
 .modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px;
@@ -403,8 +511,9 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
 .chat-form input { flex: 1; }
 .chat-form .btn { margin: 0; white-space: nowrap; }
 
-/* Toasts */
-.toasts { position: fixed; left: 50%; top: 118px; transform: translateX(-50%); z-index: 95; display: grid; gap: 8px; width: max-content; max-width: 90vw; }
+/* Toasts — en bas, au-dessus de la boussole et du chat. En haut, une cascade de
+   fin de partie enterrait toute la couche de navigation. */
+.toasts { position: fixed; left: 50%; bottom: 160px; transform: translateX(-50%); z-index: 95; display: grid; gap: 8px; width: max-content; max-width: 90vw; }
 .toast { background: rgba(5,9,12,.94); border: 1px solid var(--phos); color: var(--white); padding: 10px 16px; font-size: 13px; letter-spacing: 1px; box-shadow: var(--glow); animation: fadeup .25s; }
 .toast.amber { border-color: var(--amber); box-shadow: var(--glow-amber); }
 .toast.danger { border-color: var(--danger); box-shadow: 0 0 8px var(--danger); }
@@ -425,8 +534,104 @@ input:focus { border-color: var(--phos); box-shadow: var(--glow); }
   transform: rotate(45deg); box-shadow: 0 0 8px rgba(255,47,69,.6); }
 .mk-down .mk-label { color: var(--danger); }
 .mk-label { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
-  font-size: 10px; color: var(--ink); background: rgba(5,9,12,.7); padding: 1px 5px; letter-spacing: 1px; }
+  font-size: 11px; color: var(--white); background: rgba(5,9,12,.85); padding: 1px 5px; letter-spacing: 1px; }
 .mk-accuracy { border-radius: 50%; background: rgba(77,255,161,0.08); border: 1px solid rgba(77,255,161,0.25); }
+
+/* ===================== COMPOSANTS AJOUTÉS ===================== */
+
+/* Liaison perdue, visible sur tous les écrans. L'indicateur réseau n'existait
+   que dans la partie : sur l'accueil et dans le lobby, un joueur en zone morte
+   appuyait sur un bouton et n'obtenait rien du tout. */
+.offline-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 96;
+  background: var(--danger); color: #fff; text-align: center;
+  font-size: 13px; font-weight: 700; letter-spacing: 2px; padding: 7px 12px;
+}
+
+/* Aperçu de zone : état vide explicite. C'était un rectangle noir de 190 px,
+   sans message et sans réessai, et la case de sécurité restait cochable. */
+.lobby-map-wrap { position: relative; margin-top: 8px; }
+.lobby-map { height: 190px; border: 1px solid var(--line); background: #04070b; margin-top: 0; }
+.preview-empty {
+  position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; justify-items: center;
+  background: rgba(5,9,12,.92); border: 1px dashed var(--danger-dim); text-align: center; padding: 12px;
+}
+.pe-title { font-family: var(--disp); font-weight: 700; font-size: 20px; letter-spacing: 3px; color: var(--danger); }
+.pe-sub { font-size: 12px; color: var(--ink); }
+.preview-hint.bad { color: var(--danger); }
+
+/* Préréglages de format : trois choix au lieu de dix champs */
+.preset-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.preset-row .btn { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; font-size: 12px; letter-spacing: 1px; }
+.preset-row .btn small { color: var(--ink-dim); font-size: 11px; letter-spacing: 0; }
+.preset-row .btn.active small { color: var(--phos-dim); }
+
+.cfg-advanced { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cfg-summary {
+  cursor: pointer; list-style: none; font-size: 12px; letter-spacing: 2px; color: var(--ink-dim);
+  text-transform: uppercase; padding: 12px 0; min-height: 44px; display: flex; align-items: center;
+}
+.cfg-summary::-webkit-details-marker { display: none; }
+.cfg-summary::before { content: '▸ '; color: var(--phos); margin-right: 6px; }
+.cfg-advanced[open] .cfg-summary::before { content: '▾ '; }
+.cfg-warning { color: var(--danger); font-size: 12px; margin: 10px 0 0; line-height: 1.4; }
+
+/* Barre de lancement collée en bas : le code, l'effectif, la vérification de
+   sécurité et le bouton restent ensemble et visibles. Le bouton était à
+   ~1400 px du code de partie, deux écrans plus bas. */
+.launch-bar {
+  position: sticky; bottom: 0; z-index: 40;
+  background: rgba(5,9,12,.96); border-top: 1px solid var(--phos);
+  backdrop-filter: blur(6px); padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  max-width: 520px; margin: 0 auto;
+}
+.launch-bar .check-line { margin-top: 0; }
+.launch-bar .btn { margin: 0; }
+.lb-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.lb-meta { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.lb-code { font-family: var(--disp); font-size: 22px; font-weight: 700; letter-spacing: 4px; color: var(--white); }
+.lb-count { font-size: 11px; letter-spacing: 1px; color: var(--ink-dim); }
+.lb-row .btn { flex: 1; }
+/* Ce qui bloque le lancement est dit AVANT le tap, pas après, en rouge 13 px
+   sous le bouton, devant onze personnes qui attendent. */
+.launch-block { color: var(--amber); font-size: 12px; margin: 8px 0 0; text-align: center; letter-spacing: 1px; line-height: 1.4; min-height: 16px; }
+.check-line input:disabled + span { color: var(--ink-dim); }
+.danger-check:has(input:disabled) { opacity: .55; }
+
+/* Briefing invité : le lobby est la plus longue plage morte de la session, et
+   la plupart des joueurs arrivent par un lien sans avoir jamais lu de règle. */
+.guest-brief { margin-top: 4px; }
+.brief-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.brief-list li { font-size: 13px; line-height: 1.5; color: var(--ink); border-left: 2px solid var(--line); padding-left: 10px; }
+.c-hider { color: var(--phos); }
+.c-hunter { color: var(--amber); }
+.c-danger { color: var(--danger); }
+
+/* CAPTURE — le climax du jeu. Il recevait un toast de 13 px et un buzz, pendant
+   que l'interface se réorganisait en silence : rôle vert -> ambre, boussole et
+   MON CODE qui disparaissent, ÉLIMINER et RADAR qui apparaissent. */
+.capture-alert {
+  position: fixed; inset: 0; z-index: 92; display: grid; place-items: center; text-align: center;
+  background: rgba(30, 0, 4, .95); backdrop-filter: blur(3px); padding: 24px;
+}
+.ca-inner { max-width: 380px; }
+.ca-title {
+  font-family: var(--disp); font-weight: 700; font-size: 58px; letter-spacing: 10px;
+  color: var(--danger); text-shadow: 0 0 26px var(--danger); line-height: 1;
+}
+.ca-by { font-size: 14px; letter-spacing: 3px; color: var(--white); margin-top: 10px; }
+.ca-hand {
+  font-family: var(--disp); font-weight: 700; font-size: 26px; letter-spacing: 4px;
+  color: var(--amber); text-shadow: var(--glow-amber); margin-top: 22px;
+}
+.ca-note { font-size: 13px; color: var(--ink); margin-top: 8px; line-height: 1.5; }
+.ca-inner .btn { margin-top: 22px; }
+
+.qr-error { color: var(--danger); font-size: 13px; margin-top: 12px; line-height: 1.4; }
+
+/* 20 × 20 px, sur l'écran de jeu, tapé en courant : la plus petite cible du
+   produit. */
+.pp-close { min-width: 44px; min-height: 44px; font-size: 18px; }
 
 .hidden { display: none !important; }
 

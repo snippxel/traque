@@ -55,12 +55,42 @@
   }
 
   // ------------------------------------------------------------------ Toasts
+  // Plafonné à 2. En fin de partie, huit cachés qui tombent produisaient seize
+  // toasts empilés sur 238 px — 29 % de l'écran — par-dessus la boussole et le
+  // badge GPS, exactement au moment où il faut décider où courir.
+  const TOAST_MAX = 2;
   function toast(msg, kind, ms) {
+    const box = $('toasts');
+    // Message identique déjà affiché : on incrémente un compteur au lieu d'empiler
+    const twin = [...box.children].find((el) => el.dataset.msg === msg);
+    if (twin) {
+      twin.dataset.n = String((+twin.dataset.n || 1) + 1);
+      twin.textContent = msg + ' ×' + twin.dataset.n;
+      return;
+    }
     const t = document.createElement('div');
     t.className = 'toast' + (kind ? ' ' + kind : '');
     t.textContent = msg;
-    $('toasts').appendChild(t);
+    t.dataset.msg = msg;
+    t.dataset.n = '1';
+    box.appendChild(t);
+    while (box.children.length > TOAST_MAX) box.firstElementChild.remove();
     setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, ms || 3200);
+  }
+
+  // Le serveur répond en prose ("Il faut au moins 2 joueurs."), l'interface parle
+  // en capitales sans ponctuation. On remet ses messages dans la voix du jeu.
+  const SERVER_VOICE = {
+    'Il faut au moins 2 joueurs.': 'IL FAUT AU MOINS 2 JOUEURS',
+    'Partie déjà lancée.': 'PARTIE DÉJÀ LANCÉE',
+    'Partie introuvable.': 'PARTIE INTROUVABLE — VÉRIFIE LE CODE',
+    'Sécurité non validée.': 'COCHE LA VÉRIFICATION DE SÉCURITÉ',
+    'Réservé à l’hôte.': 'RÉSERVÉ À L’HÔTE',
+    'Ce nom est déjà pris.': 'CE NOM EST DÉJÀ PRIS',
+  };
+  function voice(msg, fallback) {
+    if (!msg) return fallback;
+    return SERVER_VOICE[msg] || msg.replace(/\.$/, '').toUpperCase();
   }
 
   // ================================================================ CONNEXION
@@ -111,6 +141,7 @@
   }
   setInterval(() => {
     updateNetBadge();
+    updateGpsBadge(); // fait vieillir "GPS PERDU 0:42" même hors partie
     if (!state.joined || !state.lastAt) return;
     if (Date.now() - state.lastAt > SILENCE_MS) forceResync();
   }, 2500);
@@ -126,6 +157,10 @@
     else if (silence > SILENCE_MS) { cls = 'warn'; txt = 'RESYNC…'; }
     el.className = 'net-badge' + (cls ? ' ' + cls : '');
     $('net-text').textContent = txt;
+    // Le badge ne vivait que dans l'écran de jeu : sur l'accueil et dans le
+    // lobby, un joueur dans une zone morte appuyait sur un bouton et n'obtenait
+    // rien du tout — pas de message, pas d'état, rien. Bandeau global ici.
+    $('offline-banner').classList.toggle('hidden', socket.connected || state.inGame);
   }
 
   // Retour au premier plan : on resynchronise immédiatement, sans attendre le
@@ -154,21 +189,53 @@
   // La zone va se fermer (~1 min) et je ne suis pas dans la prochaine zone
   socket.on('zone:closing', ({ atTime }) => {
     state.zoneClosingAt = atTime;
-    $('zone-closing').classList.remove('hidden');
+    wantBanner('zone-closing', true);
+    updateAlertLane();
     Sensors.vibrate([200, 100, 200]);
     Sensors.ping(1300); Sensors.ping(1000);
   });
 
+  // Le climax du jeu. Il recevait un toast de 13 px et un buzz de 600 ms pendant
+  // que toute l'interface se réorganisait en silence : rôle vert -> ambre,
+  // boussole et MON CODE qui disparaissent, ÉLIMINER et RADAR qui apparaissent.
+  // Un joueur qui baissait les yeux en courant voyait une autre application.
   socket.on('converted', ({ reason, by }) => {
     clearZoneAlert();
     // Le QR d'identité et les alertes "caché" n'ont plus de sens : on nettoie
     $('modal-qr').classList.add('hidden');
-    $('zone-closing').classList.add('hidden');
+    $('spot-alert').classList.add('hidden');
+    wantBanner('zone-closing', false);
+    wantBanner('spot-banner', false);
+    updateAlertLane();
     state.zoneClosingAt = 0;
-    if (reason === 'scan') toast('Capturé par ' + (by || 'un chasseur') + ' — tu passes chasseur.', 'danger', 4000);
-    else toast('Hors zone trop longtemps — tu passes chasseur.', 'danger', 4000);
-    Sensors.vibrate([600]);
+    state.spottedUntil = 0;
+    showCaptureTakeover(reason, by);
   });
+
+  let captureTimer = null;
+  function showCaptureTakeover(reason, by) {
+    const el = $('capture-alert');
+    $('ca-by').textContent = reason === 'scan'
+      ? 'PAR ' + (by ? by.toUpperCase() : 'UN CHASSEUR')
+      : 'SORTI DE LA ZONE TROP LONGTEMPS';
+    $('ca-note').textContent = reason === 'scan'
+      ? 'Ta cible : les cachés encore en jeu. Scanne leur QR code.'
+      : 'Tu chasses maintenant. Scanne le QR code des cachés.';
+    el.classList.remove('hidden');
+    // Trois canaux, comme l'alerte REPÉRÉ qui est le moment le mieux conçu du jeu
+    Sensors.vibrate([400, 120, 400, 120, 700]);
+    Sensors.ping(420); setTimeout(() => Sensors.ping(300), 200); setTimeout(() => Sensors.ping(220), 400);
+    trapFocus(el);
+    if (captureTimer) clearTimeout(captureTimer);
+    // Filet : si le joueur ne touche rien (téléphone en poche), on referme seul
+    captureTimer = setTimeout(hideCaptureTakeover, 9000);
+  }
+  function hideCaptureTakeover() {
+    if (captureTimer) { clearTimeout(captureTimer); captureTimer = null; }
+    $('capture-alert').classList.add('hidden');
+    releaseFocus();
+  }
+  $('ca-ok').onclick = hideCaptureTakeover;
 
   socket.on('hunter:flash', ({ name, lat, lng }) => {
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
@@ -271,6 +338,10 @@
       state.wasPlaying = false;
       GameMap.reset();
       teardownGame();
+      // La vérification de sécurité est refaite à CHAQUE partie. Le groupe a
+      // bougé, la lumière a changé, le terrain n'est plus le même : une case
+      // cochée il y a une heure ne certifie rien.
+      resetSafety();
     }
     if (s.status === 'playing' || s.status === 'ended') state.wasPlaying = true;
     if (s.status === 'lobby') { renderLobby(s); show('screen-lobby'); }
@@ -293,10 +364,14 @@
         '<span class="r-role ' + p.role + '">' + (p.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ') + '</span>';
       roster.appendChild(li);
     });
-    $('roster-count').textContent = (s.roster || []).length;
+    const count = (s.roster || []).length;
+    $('roster-count').textContent = count;
+    $('lb-count').textContent = count;
+    $('lb-code').textContent = s.code;
 
     if (s.isHost) {
       $('host-panel').classList.remove('hidden');
+      $('launch-bar').classList.remove('hidden');
       $('guest-panel').classList.add('hidden');
       // Aperçu de la zone : l'hôte doit pouvoir vérifier le terrain avant de lancer
       $('zone-preview-panel').classList.remove('hidden');
@@ -305,14 +380,27 @@
       renderManual(s);
       // mode d'attribution
       state.roleMode = s.roleMode;
-      $('btn-role-random').classList.toggle('active', s.roleMode === 'random');
-      $('btn-role-manual').classList.toggle('active', s.roleMode === 'manual');
-      $('manual-assign').classList.toggle('hidden', s.roleMode !== 'manual');
+      const rnd = s.roleMode === 'random';
+      $('btn-role-random').classList.toggle('active', rnd);
+      $('btn-role-random').setAttribute('aria-pressed', String(rnd));
+      $('btn-role-manual').classList.toggle('active', !rnd);
+      $('btn-role-manual').setAttribute('aria-pressed', String(!rnd));
+      $('manual-assign').classList.toggle('hidden', rnd);
+      // Les rôles affichés doivent être les VRAIS rôles. Tant que personne n'a
+      // appuyé sur ALÉATOIRE, le serveur laissait tout le monde caché pendant
+      // que le bouton se disait actif.
+      if (!rolesEverAssigned && rnd && count >= 2 && !(s.roster || []).some((p) => p.role === 'hunter')) {
+        rolesEverAssigned = true;
+        socket.emit('assignRoles', { mode: 'random' });
+      }
+      updateLaunchState();
     } else {
       $('host-panel').classList.add('hidden');
+      $('launch-bar').classList.add('hidden');
       $('zone-preview-panel').classList.add('hidden');
       $('guest-panel').classList.remove('hidden');
       $('guest-role').textContent = s.you.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ';
+      $('guest-role').className = s.you.role === 'hunter' ? 'c-hunter' : 'c-hider';
     }
   }
 
@@ -320,17 +408,32 @@
   // exactement là que la zone sera créée au lancement).
   function updateZonePreview(cfg) {
     const hint = $('preview-hint');
+    const empty = $('preview-empty');
     if (!state.selfPos) {
-      hint.textContent = 'Acquisition GPS… la zone se centrera sur ta position au lancement.';
-      hint.className = 'preview-hint';
+      // Sans position, Leaflet n'était jamais initialisé : un rectangle noir de
+      // 190 px, "Acquisition GPS…" indéfiniment, aucun réessai — et la case de
+      // sécurité restait cochable. On certifiait un terrain qu'on ne voyait pas.
+      empty.classList.remove('hidden');
+      $('preview-radius').textContent = '—';
+      hint.textContent = geoState.denied
+        ? 'GPS refusé : autorise la localisation pour vérifier le terrain.'
+        : 'Acquisition GPS… la zone se centrera sur ta position au lancement.';
+      hint.className = 'preview-hint' + (geoState.denied ? ' bad' : '');
       return;
     }
+    empty.classList.add('hidden');
     const radius = (cfg && cfg.startRadius) || 500;
     $('preview-radius').textContent = radius + ' m';
     hint.textContent = 'Vérifie : routes passantes, plans d’eau, propriétés privées.';
     hint.className = 'preview-hint ok';
     GameMap.previewUpdate(state.selfPos, radius);
   }
+  $('btn-preview-retry').onclick = () => {
+    $('preview-hint').textContent = 'Nouvelle acquisition GPS…';
+    geoState.denied = false;
+    Sensors.stopWatch();
+    startGeo();
+  };
 
   function fillConfig(cfg) {
     // Une saisie locale est en cours ou vient d'être envoyée : ne PAS écraser les
@@ -375,6 +478,15 @@
   // ---------------------------------------------------------------- JEU
   function enterGame(s) {
     if (state.inGame) return;
+    // Sans Leaflet, GameMap.init() levait dans enterGame() et l'écran de jeu ne
+    // s'affichait tout simplement jamais — écran blanc, aucun message. Les libs
+    // sont auto-hébergées et mises en cache maintenant, mais on garde la garde :
+    // un échec silencieux au lancement d'une partie est le pire scénario.
+    if (typeof L === 'undefined') {
+      toast('RESSOURCES MANQUANTES — recharge la page', 'danger', 15000);
+      $('lobby-error') && lobbyError('CARTE INDISPONIBLE — RECHARGE LA PAGE');
+      return;
+    }
     state.inGame = true;
     show('screen-game');
     GameMap.init();
@@ -467,7 +579,7 @@
   let hudTimer = null;
   function startHudTicker() {
     if (hudTimer) return;
-    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); updateStartBanner(); }, 250);
+    hudTimer = setInterval(() => { updateTimers(); updateZoneCountdown(); updateRadarButton(); updateSpotBanner(); updateZoneClosing(); updateStartBanner(); updateGpsBadge(); updateAlertLane(); }, 250);
   }
   // Bouton radar : nombre d'utilisations restantes (3 par partie)
   function updateRadarButton() {
@@ -511,14 +623,38 @@
     } else {
       $('rt-value').textContent = '--:--';
     }
-    // Boussole (cachés)
-    if (state.role === 'hider' && s.zone && s.zone.center && state.selfPos) {
+    // Boussole (cachés). Sans fix frais, l'aiguille restait affichée avec un
+    // transform VIDE : une flèche confiante qui ne pointait nulle part.
+    const compass = $('compass');
+    const fresh = gpsFresh();
+    compass.classList.toggle('stale', !fresh);
+    if (state.role === 'hider' && s.zone && s.zone.center && state.selfPos && fresh) {
       const brg = GameMap.bearing(state.selfPos, s.zone.center);
       const head = Sensors.heading();
       const rot = head == null ? brg : (brg - head);
       $('compass-needle').style.transform = 'translate(-50%, -100%) rotate(' + rot + 'deg)';
     }
   }
+
+  // Un seul bandeau d'alerte à la fois, par priorité décroissante. Ils étaient
+  // en position absolue à des offsets fixes et se recouvraient : pendant
+  // "FUYEZ !", start-banner masquait la boussole ET le badge GPS — les deux
+  // instruments dont un caché a besoin pour décider où courir.
+  const LANE_PRIORITY = ['zone-closing', 'start-banner', 'spot-banner'];
+  function updateAlertLane() {
+    let taken = false;
+    for (const id of LANE_PRIORITY) {
+      const el = $(id);
+      if (!el) continue;
+      const wants = el.dataset.want === '1';
+      const showIt = wants && !taken;
+      el.classList.toggle('hidden', !showIt);
+      if (showIt) taken = true;
+    }
+  }
+  // Les fonctions de mise à jour déclarent leur intention ici ; l'arbitre
+  // ci-dessus décide qui s'affiche réellement.
+  function wantBanner(id, on) { $(id).dataset.want = on ? '1' : '0'; }
   function updateZoneCountdown() {
     if (!state.alertDeadline) return;
     const left = Math.max(0, Math.ceil((state.alertDeadline - Date.now()) / 1000));
@@ -540,7 +676,7 @@
     const banner = $('start-banner');
     const now = Date.now();
     if (!s || s.status !== 'playing' || !s.dispersionEndsAt || now >= s.dispersionEndsAt) {
-      banner.classList.add('hidden');
+      wantBanner('start-banner', false);
       // Transition dispersion -> chasse : son + vibration pour que tout le monde
       // le sente sans avoir les yeux sur l'écran.
       if (state.wasDispersing && s && s.status === 'playing') {
@@ -552,7 +688,7 @@
       return;
     }
     state.wasDispersing = true;
-    banner.classList.remove('hidden');
+    wantBanner('start-banner', true);
     const hunter = state.role === 'hunter';
     banner.classList.toggle('hunter', hunter);
     $('sb-title').textContent = hunter ? 'ATTENDEZ' : 'FUYEZ !';
@@ -571,26 +707,24 @@
 
   // Bannière décomptée avant la fermeture de la zone (cachés hors prochaine zone)
   function updateZoneClosing() {
-    const banner = $('zone-closing');
     const left = (state.zoneClosingAt || 0) - Date.now();
     if (left > 0) {
-      banner.classList.remove('hidden');
+      wantBanner('zone-closing', true);
       $('zc-timer').textContent = fmt(left);
     } else {
-      banner.classList.add('hidden');
+      wantBanner('zone-closing', false);
       state.zoneClosingAt = 0;
     }
   }
 
   // Bannière décomptée pendant que la position du chasseur reste visible (30 s)
   function updateSpotBanner() {
-    const banner = $('spot-banner');
     const left = (state.spottedUntil || 0) - Date.now();
     if (left > 0) {
-      banner.classList.remove('hidden');
+      wantBanner('spot-banner', true);
       $('spot-timer').textContent = fmt(left);
     } else {
-      banner.classList.add('hidden');
+      wantBanner('spot-banner', false);
       if (state.spottedUntil) { state.spottedUntil = 0; GameMap.setSpotted([]); }
     }
   }
@@ -617,10 +751,12 @@
     state.zoneClosingAt = 0;
     state.wasDispersing = false;
     $('spot-alert').classList.add('hidden');
-    $('spot-banner').classList.add('hidden');
-    $('zone-closing').classList.add('hidden');
+    hideCaptureTakeover();
+    wantBanner('spot-banner', false);
+    wantBanner('zone-closing', false);
+    wantBanner('start-banner', false);
+    updateAlertLane();
     $('reveal-timer').classList.add('hidden');
-    $('start-banner').classList.add('hidden');
     $('btn-scan').classList.remove('locked');
     $('btn-radar').classList.remove('locked');
     $('modal-chat').classList.add('hidden');
@@ -633,9 +769,43 @@
   // ---------------------------------------------------------------- FIN
   function renderEnd(s) {
     const r = s.result;
-    if (!r) return;
+    // Sans résultat, on sortait en laissant le bandeau de la partie PRÉCÉDENTE
+    // et une table vide à l'écran.
+    if (!r) {
+      $('end-personal').textContent = 'RÉSULTAT INDISPONIBLE';
+      $('end-personal').className = 'end-personal';
+      $('end-banner').className = 'end-banner';
+      $('end-banner').textContent = 'FIN DE PARTIE';
+      $('stats-table').querySelector('tbody').innerHTML = '';
+      $('btn-replay').classList.toggle('hidden', !s.isHost);
+      return;
+    }
     // Seul l'hôte peut relancer une partie avec les mêmes joueurs
     $('btn-replay').classList.toggle('hidden', !s.isHost);
+
+    // Comme un caché capturé DEVIENT chasseur, un joueur éliminé à la deuxième
+    // minute lisait "VICTOIRE DES CHASSEURS" et avait donc techniquement gagné.
+    // Le bandeau ne disait jamais ce qui t'était arrivé à TOI.
+    const me = (r.stats || []).find((p) => p.name === state.name);
+    const pers = $('end-personal');
+    if (me) {
+      if (me.neverCaught && me.startRole === 'hider') {
+        pers.textContent = 'TU AS SURVÉCU';
+        pers.className = 'end-personal survived';
+      } else if (me.startRole === 'hider') {
+        pers.textContent = 'CAPTURÉ' + (me.survivedMs != null ? ' À ' + fmt(me.survivedMs) : '');
+        pers.className = 'end-personal caught';
+      } else {
+        pers.textContent = me.captures > 0
+          ? me.captures + (me.captures > 1 ? ' CAPTURES' : ' CAPTURE')
+          : 'AUCUNE CAPTURE';
+        pers.className = 'end-personal hunted';
+      }
+    } else {
+      pers.textContent = '—';
+      pers.className = 'end-personal';
+    }
+
     const banner = $('end-banner');
     banner.className = 'end-banner ' + r.winner;
     banner.textContent = r.winner === 'hunters' ? 'VICTOIRE DES CHASSEURS' : 'VICTOIRE DES CACHÉS';
@@ -657,15 +827,67 @@
   }
 
   // ================================================================ GPS
+  // Le badge affichait `GPS --` en VERT PHOSPHORE — la couleur "tout va bien" —
+  // tant qu'aucune précision numérique n'était arrivée. Position refusée, écran
+  // verrouillé, iOS qui suspend la géoloc en arrière-plan : dans les trois cas
+  // le joueur lisait "sain" alors que l'app ne savait pas où il était. Un caché
+  // s'arrête de courir en se croyant à jour ; un chasseur poursuit un signal
+  // mort. C'est la visibilité asymétrique — le cœur du produit — qui tombe.
+  const geoState = { lastFixAt: 0, denied: false, started: false };
+  const FIX_STALE_MS = 10000;
+
   function startGeo() {
-    Sensors.watchPosition(onPos, (err) => { toast(err, 'danger', 5000); });
+    geoState.started = true;
+    Sensors.watchPosition(onPos, onGeoError);
+    updateGpsBadge();
   }
+  function onGeoError(err, code) {
+    if (code === 1) geoState.denied = true;
+    updateGpsBadge();
+    updateLaunchState();
+    updateZonePreview(state.last && state.last.config);
+    toast(err, 'danger', 5000);
+  }
+
+  // Seuils alignés sur la réalité documentée : en extérieur le GPS d'un
+  // téléphone donne 5 à 30 m, et le principe produit dit que cette imprécision
+  // est une donnée, pas un bug. L'ancien seuil peignait un fix urbain normal de
+  // 20 m en ambre d'alerte — l'app criait au loup sur sa propre ligne de base.
+  function updateGpsBadge() {
+    const badge = $('gps-badge'), acc = $('gps-acc');
+    if (!badge) return;
+    const age = geoState.lastFixAt ? Date.now() - geoState.lastFixAt : Infinity;
+    if (geoState.denied) {
+      badge.className = 'gps-badge bad';
+      acc.textContent = 'REFUSÉ';
+      return;
+    }
+    if (!geoState.lastFixAt) {
+      badge.className = 'gps-badge warn';
+      acc.textContent = 'ACQUISITION…';
+      return;
+    }
+    if (age > FIX_STALE_MS) {
+      // Le motif d'âge existait déjà, mais appliqué aux AUTRES ("KARL · 3min").
+      // Jamais à soi. C'est pourtant la seule position dont tout dépend.
+      badge.className = 'gps-badge bad';
+      acc.textContent = 'PERDU ' + fmt(age);
+      return;
+    }
+    const a = state.selfPos ? state.selfPos.accuracy : 0;
+    badge.className = 'gps-badge' + (a > 60 ? ' bad' : a > 35 ? ' warn' : '');
+    acc.textContent = Math.round(a) + 'm';
+  }
+  function gpsFresh() {
+    return !!geoState.lastFixAt && (Date.now() - geoState.lastFixAt) <= FIX_STALE_MS;
+  }
+
   function onPos(pos) {
     state.selfPos = pos;
-    // Badge de précision
-    const badge = $('gps-badge'), acc = $('gps-acc');
-    acc.textContent = Math.round(pos.accuracy) + 'm';
-    badge.className = 'gps-badge' + (pos.accuracy > 30 ? ' bad' : pos.accuracy > 15 ? ' warn' : '');
+    geoState.lastFixAt = Date.now();
+    geoState.denied = false;
+    updateGpsBadge();
+    updateLaunchState();
     // Affichage local même si imprécis
     if (state.inGame && state.role) GameMap.setSelf(pos, state.role);
     // Envoi réseau : on envoie même une position imprécise (PC/WiFi) pour rester
@@ -703,29 +925,68 @@
 
   // ================================================================ UI HANDLERS
   // --- Accueil ---
-  $('btn-create').onclick = () => {
+  // Aucun état de chargement n'existait : hors réseau, on appuyait sur CRÉER et
+  // il ne se passait strictement rien — pas de spinner, pas de désactivation,
+  // pas de timeout, pas d'erreur. Le bouton avait juste l'air normal.
+  let homeBusy = false;
+  function setHomeBusy(btn, on, label) {
+    homeBusy = on;
+    $('btn-create').disabled = on;
+    $('btn-join').disabled = on;
+    btn.textContent = on ? label : btn.dataset.label;
+  }
+  ['btn-create', 'btn-join'].forEach((id) => { $(id).dataset.label = $(id).textContent; });
+
+  // Filet : si le serveur ne répond pas (Render endormi, zone morte), on rend
+  // la main au bout de 12 s avec un message, au lieu de figer les boutons.
+  function withTimeout(btn, label, run) {
+    setHomeBusy(btn, true, label);
+    let done = false;
+    const to = setTimeout(() => {
+      if (done) return;
+      done = true;
+      setHomeBusy(btn, false);
+      homeError('PAS DE RÉPONSE DU SERVEUR — vérifie ta connexion et réessaie.');
+    }, 12000);
+    return (res) => {
+      if (done) return;
+      done = true;
+      clearTimeout(to);
+      setHomeBusy(btn, false);
+      run(res);
+    };
+  }
+
+  function doCreate() {
+    if (homeBusy) return;
     const name = ($('input-name').value || '').trim();
-    if (!name) return homeError('Entre un identifiant.');
+    if (!name) { homeError('ENTRE UN IDENTIFIANT'); $('input-name').focus(); return; }
     homeError('');
-    socket.emit('createRoom', { name }, (res) => {
-      if (!res || !res.ok) return homeError((res && res.error) || 'Erreur.');
+    socket.emit('createRoom', { name }, withTimeout($('btn-create'), '[ CRÉATION… ]', (res) => {
+      if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
-    });
-  };
-  $('btn-join').onclick = () => {
+    }));
+  }
+  function doJoin() {
+    if (homeBusy) return;
     const name = ($('input-name').value || '').trim();
     const code = ($('input-code').value || '').trim().toUpperCase();
-    if (!name) return homeError('Entre un identifiant.');
-    if (code.length !== 5) return homeError('Le code fait 5 caractères.');
+    if (!name) { homeError('ENTRE UN IDENTIFIANT'); $('input-name').focus(); return; }
+    if (!code) { homeError('ENTRE LE CODE, OU APPUIE SUR CRÉER UNE PARTIE'); $('input-code').focus(); return; }
+    if (code.length !== 5) { homeError('LE CODE FAIT 5 CARACTÈRES'); $('input-code').focus(); return; }
     homeError('');
-    socket.emit('joinRoom', { code, name }, (res) => {
-      if (!res || !res.ok) return homeError((res && res.error) || 'Erreur.');
+    socket.emit('joinRoom', { code, name }, withTimeout($('btn-join'), '[ CONNEXION… ]', (res) => {
+      if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
       if (res.reclaimed) toast('Place reprise — ton rôle et ton code QR sont conservés.', '', 5000);
-    });
-  };
+    }));
+  }
+  $('btn-create').onclick = doCreate;
+  // Le clavier mobile affiche "OK" / "Go" : il ne faisait rien, il n'y avait
+  // aucun <form>. Il fallait viser REJOINDRE au pouce, clavier ouvert.
+  $('home-form').addEventListener('submit', (e) => { e.preventDefault(); doJoin(); });
   function homeError(msg) { $('home-error').textContent = msg; }
   $('input-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
 
@@ -761,12 +1022,18 @@
     }, 250);
   }
   cfgIds.forEach((id) => { const el = $(id); if (el) {
-    el.addEventListener('change', pushConfig);
-    el.addEventListener('input', () => { configDirty = true; }); // protège dès la frappe
+    el.addEventListener('change', () => { pushConfig(); validateConfig(); updateLaunchState(); });
+    el.addEventListener('input', () => { configDirty = true; validateConfig(); updateLaunchState(); }); // protège dès la frappe
   } });
 
-  $('btn-role-random').onclick = () => socket.emit('assignRoles', { mode: 'random' });
+  // Le roster affichait tout le monde en CACHÉ alors que le bouton ALÉATOIRE
+  // se rendait déjà comme actif : l'interface annonçait un mode qu'elle n'avait
+  // pas appliqué, et quelqu'un finissait par demander pourquoi il n'y a pas de
+  // chasseur. On applique donc l'attribution dès l'entrée de l'hôte dans le lobby.
+  let rolesEverAssigned = false;
+  $('btn-role-random').onclick = () => { rolesEverAssigned = true; socket.emit('assignRoles', { mode: 'random' }); };
   $('btn-role-manual').onclick = () => {
+    rolesEverAssigned = true;
     // bascule l'affichage manuel : on renvoie l'état courant en mode manuel
     const s = state.last;
     const assignments = {};
@@ -774,21 +1041,107 @@
     socket.emit('assignRoles', { mode: 'manual', assignments });
   };
 
-  // Safety + launch
-  $('chk-safety').addEventListener('change', updateLaunchState);
-  function updateLaunchState() {
-    $('btn-launch').disabled = !$('chk-safety').checked;
+  // ---------------------------------------------------------- Préréglages
+  // Dix champs numériques dépliés en permanence, pour des valeurs qu'un groupe
+  // d'amis change peut-être deux fois dans sa vie. L'hôte règle ça debout au
+  // milieu du groupe, avec onze personnes qui attendent.
+  const PRESETS = {
+    fast:    { durationMin: 10, startRadius: 300, finalRadius: 60,  shrinkSteps: 3, revealIntervalMin: 1.5, graceSeconds: 15, radarUses: 2, dispersionSeconds: 45,  startRevealSeconds: 15, finalZoneMinutes: 2 },
+    classic: { durationMin: 25, startRadius: 500, finalRadius: 80,  shrinkSteps: 4, revealIntervalMin: 2,   graceSeconds: 20, radarUses: 3, dispersionSeconds: 60,  startRevealSeconds: 20, finalZoneMinutes: 3 },
+    long:    { durationMin: 45, startRadius: 900, finalRadius: 120, shrinkSteps: 6, revealIntervalMin: 3,   graceSeconds: 25, radarUses: 4, dispersionSeconds: 90,  startRevealSeconds: 25, finalZoneMinutes: 5 },
+  };
+  function applyPreset(key) {
+    const p = PRESETS[key];
+    if (!p) return;
+    for (const [k, v] of Object.entries(p)) {
+      const el = $('cfg-' + k);
+      if (el) el.value = v;
+    }
+    [...document.querySelectorAll('.preset')].forEach((b) => b.classList.remove('active'));
+    $('btn-preset-' + key).classList.add('active');
+    configDirty = true;
+    pushConfig();
+    validateConfig();
+    updateZonePreview(readConfig());
+    toast('FORMAT ' + (key === 'fast' ? 'RAPIDE' : key === 'long' ? 'LONGUE' : 'CLASSIQUE') + ' APPLIQUÉ', '', 2200);
   }
+  $('btn-preset-fast').onclick = () => applyPreset('fast');
+  $('btn-preset-classic').onclick = () => applyPreset('classic');
+  $('btn-preset-long').onclick = () => applyPreset('long');
+
+  // Le formulaire acceptait un rayon final PLUS GRAND que le rayon de départ :
+  // une zone qui s'agrandit en rétrécissant. Aucune validation croisée.
+  function validateConfig() {
+    const c = readConfig();
+    const warn = $('cfg-warning');
+    let msg = '';
+    if (c.finalRadius >= c.startRadius) msg = 'Le rayon final doit être plus petit que le rayon de départ.';
+    else if (c.dispersionSeconds >= c.durationMin * 60) msg = 'La dispersion dure plus longtemps que la partie.';
+    else if (c.finalZoneMinutes * 60 >= c.durationMin * 60) msg = 'Le jeu en zone finale dépasse la durée de la partie.';
+    warn.textContent = msg;
+    warn.classList.toggle('hidden', !msg);
+    return !msg;
+  }
+
+  // ---------------------------------------------------------- Safety + launch
+  $('chk-safety').addEventListener('change', updateLaunchState);
+
+  // Le lancement dépendait de la SEULE case à cocher. Le GPS — le vrai bloquant —
+  // n'était révélé qu'après le tap, en rouge 13 px, 55 px sous le bouton, devant
+  // onze personnes. Et la case n'était jamais décochée : après REJOUER, la
+  // partie suivante — jouée depuis un autre endroit — n'avait aucune
+  // vérification de sécurité du tout.
+  function updateLaunchState() {
+    const btn = $('btn-launch');
+    const block = $('launch-block');
+    const chk = $('chk-safety');
+    const count = (state.last && state.last.roster || []).length;
+    const canVerify = !!state.selfPos;
+
+    // Sans terrain affiché, il n'y a rien à certifier : la case est verrouillée.
+    chk.disabled = !canVerify;
+    if (!canVerify && chk.checked) chk.checked = false;
+
+    let why = '';
+    if (!canVerify) why = geoState.denied
+      ? '⚠ GPS REFUSÉ — impossible de vérifier la zone. Autorise la localisation.'
+      : '⚠ POSITION REQUISE POUR VÉRIFIER LA ZONE';
+    else if (!gpsFresh()) why = '⚠ POSITION PÉRIMÉE — attends un nouveau point GPS';
+    else if (count < 2) why = 'IL FAUT AU MOINS 2 OPÉRATEURS';
+    else if (!validateConfig()) why = 'RÉGLAGES INCOHÉRENTS — VOIR RÉGLAGES AVANCÉS';
+    else if (!chk.checked) why = 'COCHE LA VÉRIFICATION DE SÉCURITÉ POUR LANCER';
+
+    block.textContent = why;
+    btn.disabled = !!why || launching;
+  }
+
+  let launching = false;
   $('btn-launch').onclick = () => {
-    if (!state.selfPos) { $('lobby-error').textContent = 'Position GPS non acquise (nécessaire pour centrer la zone).'; return; }
+    if (launching) return;
+    lobbyError('');
     // On envoie la config à jour AVANT de lancer (les messages socket sont ordonnés),
     // sinon une modif de dernière seconde encore débouncée serait perdue au lancement.
     clearTimeout(cfgTimer);
     socket.emit('updateConfig', { config: readConfig() });
+    launching = true;
+    $('btn-launch').textContent = '[ LANCEMENT… ]';
+    updateLaunchState();
     socket.emit('startGame', { safetyChecked: $('chk-safety').checked }, (res) => {
-      if (!res || !res.ok) $('lobby-error').textContent = (res && res.error) || 'Impossible de lancer.';
+      launching = false;
+      $('btn-launch').textContent = '[ LANCER LA PARTIE ]';
+      if (!res || !res.ok) lobbyError(voice(res && res.error, 'IMPOSSIBLE DE LANCER'));
+      updateLaunchState();
     });
   };
+
+  // Le message d'erreur du lobby n'était effacé NULLE PART : un "Il faut au
+  // moins 2 joueurs." périmé restait affiché à travers un lancement réussi.
+  let lobbyErrTimer = null;
+  function lobbyError(msg) {
+    $('lobby-error').textContent = msg || '';
+    clearTimeout(lobbyErrTimer);
+    if (msg) lobbyErrTimer = setTimeout(() => { $('lobby-error').textContent = ''; }, 6000);
+  }
 
   $('btn-copy-code').onclick = () => {
     const code = $('lobby-code').textContent;
@@ -816,20 +1169,25 @@
     $('confirm-title').textContent = title;
     $('confirm-text').textContent = text;
     confirmCb = onYes;
-    $('modal-confirm').classList.remove('hidden');
+    openModal('modal-confirm');
   }
   $('confirm-yes').onclick = () => {
-    $('modal-confirm').classList.add('hidden');
+    closeModal($('modal-confirm'));
     const cb = confirmCb; confirmCb = null;
     if (cb) cb();
   };
-  $('confirm-no').onclick = () => { $('modal-confirm').classList.add('hidden'); confirmCb = null; };
+  $('confirm-no').onclick = () => { closeModal($('modal-confirm')); confirmCb = null; };
 
   // --- Jeu : actions ---
   $('btn-code').onclick = () => {
     if (!state.last) return;
-    $('modal-qr').classList.remove('hidden');
-    QR.render($('qr-canvas'), state.last.you.qrToken);
+    openModal('modal-qr');
+    // Sans la lib, le canvas restait BLANC sans un mot : le joueur croyait
+    // montrer son code alors que personne ne pouvait le capturer.
+    const ok = QR.render($('qr-canvas'), state.last.you.qrToken);
+    const err = $('qr-error');
+    err.classList.toggle('hidden', ok);
+    if (!ok) err.textContent = 'CODE INDISPONIBLE — recharge la page avant de continuer à jouer.';
   };
   $('btn-scan').onclick = () => {
     const s = state.last;
@@ -837,6 +1195,7 @@
       toast('Attends la fin de la dispersion pour éliminer.', 'amber');
       return;
     }
+    Sensors.vibrate(20); // l'action principale du chasseur ne donnait aucun retour tactile
     openScan();
   };
   $('btn-radar').onclick = () => {
@@ -853,7 +1212,7 @@
   };
   $('btn-chat').onclick = () => {
     unreadChat = 0; updateChatBadge();
-    $('modal-chat').classList.remove('hidden');
+    openModal('modal-chat');
     const box = $('chat-messages');
     if (box && !box.children.length) {
       box.innerHTML = '<div class="chat-empty">Aucun message. Écris le premier.</div>';
@@ -874,31 +1233,87 @@
 
   // --- Scan modal ---
   function openScan() {
-    $('modal-scan').classList.remove('hidden');
-    $('scan-status').textContent = 'Vise le QR code de la cible…';
+    openModal('modal-scan');
+    $('scan-status').textContent = 'Chargement du scanner…';
     QR.startScan($('scan-video'), onScanDetect, (err) => { $('scan-status').textContent = err; });
+    setTimeout(() => {
+      if (!$('modal-scan').classList.contains('hidden') && $('scan-status').textContent === 'Chargement du scanner…') {
+        $('scan-status').textContent = 'Vise le QR code de la cible…';
+      }
+    }, 400);
   }
   function onScanDetect(token) {
+    $('scan-status').textContent = 'Vérification…';
     socket.emit('scanQR', { token }, (res) => {
       if (res && res.ok) {
         $('scan-status').textContent = 'CIBLE ÉLIMINÉE : ' + res.name;
         Sensors.ping(1800); Sensors.vibrate([100, 60, 100]);
         setTimeout(closeScan, 1200);
       } else {
-        $('scan-status').textContent = (res && res.error) || 'Échec.';
-        setTimeout(() => QR.resumeScan($('scan-video'), onScanDetect, () => {}), 900);
+        $('scan-status').textContent = voice(res && res.error, 'ÉCHEC — VISE UN AUTRE QR');
+        Sensors.vibrate(80);
+        // resumeScan() ne no-ope plus : la boucle rAF redémarre réellement.
+        setTimeout(() => QR.resumeScan(), 900);
       }
     });
   }
-  function closeScan() { QR.stopScan(); $('modal-scan').classList.add('hidden'); }
+  function closeScan() { QR.stopScan(); closeModal($('modal-scan')); }
 
   // Fermeture des modales
   document.querySelectorAll('.modal-close').forEach((btn) => {
-    btn.onclick = () => {
-      const modal = btn.closest('.modal');
-      modal.classList.add('hidden');
-      if (modal.id === 'modal-scan') QR.stopScan();
-    };
+    btn.onclick = () => closeModal(btn.closest('.modal'));
+  });
+
+  // ------------------------------------------------- Accessibilité des modales
+  // Aucune des cinq modales n'avait de piège de focus ni de touche Échap : le
+  // focus restait dans la page derrière l'overlay, et il n'existait aucune
+  // sortie clavier de la modale de scan.
+  let focusRoot = null, focusPrev = null;
+  const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+
+  function trapFocus(el) {
+    focusPrev = document.activeElement;
+    focusRoot = el;
+    const first = el.querySelector(FOCUSABLE);
+    if (first) setTimeout(() => first.focus(), 30);
+  }
+  function releaseFocus() {
+    focusRoot = null;
+    if (focusPrev && document.contains(focusPrev)) { try { focusPrev.focus(); } catch (_) {} }
+    focusPrev = null;
+  }
+  function openModal(id) {
+    const el = $(id);
+    el.classList.remove('hidden');
+    trapFocus(el);
+  }
+  function closeModal(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+    if (modal.id === 'modal-scan') QR.stopScan();
+    releaseFocus();
+  }
+  function topOverlay() {
+    if (!$('capture-alert').classList.contains('hidden')) return $('capture-alert');
+    const open = [...document.querySelectorAll('.modal:not(.hidden)')];
+    return open.length ? open[open.length - 1] : null;
+  }
+  document.addEventListener('keydown', (e) => {
+    const top = topOverlay();
+    if (e.key === 'Escape') {
+      // L'alerte hors-zone n'est PAS fermable : c'est un compte à rebours de
+      // sécurité, pas une boîte de dialogue.
+      if (!$('zone-alert').classList.contains('hidden')) return;
+      if (top === $('capture-alert')) { hideCaptureTakeover(); return; }
+      if (top) { e.preventDefault(); closeModal(top); }
+      return;
+    }
+    if (e.key !== 'Tab' || !focusRoot || focusRoot.classList.contains('hidden')) return;
+    const items = [...focusRoot.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 
   // --- Fin ---
@@ -912,7 +1327,8 @@
 
   // --- Liste des joueurs (noms et rôles uniquement, aucune position) ---
   $('btn-players').onclick = () => {
-    $('players-panel').classList.toggle('hidden');
+    const open = $('players-panel').classList.toggle('hidden') === false;
+    $('btn-players').setAttribute('aria-pressed', String(open));
     renderPlayersPanel();
   };
   $('pp-close').onclick = () => $('players-panel').classList.add('hidden');
@@ -952,11 +1368,21 @@
     toast('Reconnexion nécessaire', 'danger', 6000);
   }
 
+  function resetSafety() {
+    const chk = $('chk-safety');
+    if (chk) chk.checked = false;
+    lobbyError('');
+    updateLaunchState();
+  }
+
   function resetToHome() {
     teardownGame();
     Sensors.stopWatch();
     GameMap.reset();
     state.joined = false; state.code = null; state.playerId = null; state.last = null; state.selfPos = null; state.sentPos = null;
+    geoState.lastFixAt = 0; geoState.started = false;
+    resetSafety();
+    updateGpsBadge();
     show('screen-home');
   }
 
@@ -998,11 +1424,11 @@
       $('install-go').classList.add('hidden');
       $('install-ios').classList.remove('hidden');
     }
-    $('modal-install').classList.remove('hidden');
+    openModal('modal-install');
   };
   $('install-go').onclick = async () => {
     if (!deferredInstall) return;
-    $('modal-install').classList.add('hidden');
+    closeModal($('modal-install'));
     deferredInstall.prompt();
     try { await deferredInstall.userChoice; } catch (_) {}
     deferredInstall = null;
@@ -1044,7 +1470,11 @@
     const vv = window.visualViewport;
     const h = Math.round(vv && vv.height ? vv.height : window.innerHeight);
     const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--app-h'), 10);
-    if (h >= 200 && Math.abs(h - cur) > 4) setAppHeight();
+    // --app-h non encore posée => cur vaut NaN, et `Math.abs(h - NaN) > 4` est
+    // TOUJOURS faux : le filet écrit précisément pour rattraper une mesure
+    // manquante ne pouvait pas se déclencher dans ce cas-là.
+    if (h < 200) return;
+    if (!Number.isFinite(cur) || Math.abs(h - cur) > 4) setAppHeight();
   }, 1000);
 
   // Wake lock auto-réacquisition
