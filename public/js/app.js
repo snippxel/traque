@@ -192,7 +192,7 @@
     wantBanner('zone-closing', true);
     updateAlertLane();
     Sensors.vibrate([200, 100, 200]);
-    Sensors.ping(1300); Sensors.ping(1000);
+    Sensors.sfx('shrink');
   });
 
   // Le climax du jeu. Il recevait un toast de 13 px et un buzz de 600 ms pendant
@@ -223,8 +223,9 @@
       : 'Tu chasses maintenant. Scanne le QR code des cachés.';
     el.classList.remove('hidden');
     // Trois canaux, comme l'alerte REPÉRÉ qui est le moment le mieux conçu du jeu
-    Sensors.vibrate([400, 120, 400, 120, 700]);
-    Sensors.ping(420); setTimeout(() => Sensors.ping(300), 200); setTimeout(() => Sensors.ping(220), 400);
+    Sensors.sfx('captured');
+    // La vibration est calée sur la chute de sub, pas sur le début du son.
+    setTimeout(() => Sensors.vibrate([500, 130, 400]), 600);
     trapFocus(el);
     if (captureTimer) clearTimeout(captureTimer);
     // Filet : si le joueur ne touche rien (téléphone en poche), on referme seul
@@ -241,7 +242,7 @@
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
     // Mais s'il est loin de la vue actuelle, il reste invisible sans recadrage :
     // le joueur voyait le toast sans jamais voir le point apparaître.
-    Sensors.ping(1400);
+    Sensors.sfx('third');
     Sensors.vibrate(120);
     toast('SORTIE DE ZONE : ' + name, 'amber', 4000);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
@@ -255,7 +256,7 @@
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
     // Même recadrage que hunter:flash : sinon la cible révélée loin du chasseur
     // n'apparaît jamais à l'écran malgré le toast de confirmation.
-    Sensors.ping(1600);
+    Sensors.sfx('third');
     toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const pts = [[lat, lng]];
@@ -270,8 +271,7 @@
     state.spottedUntil = until;
     showSpotAlert(by);
     Sensors.vibrate([300, 150, 300, 150, 300, 150, 600]);
-    let beeps = 0;
-    const bz = setInterval(() => { Sensors.ping(1500); Sensors.ping(1050); if (++beeps >= 6) clearInterval(bz); }, 450);
+    Sensors.sfx('spotted');
     if (hunter) {
       GameMap.setSpotted([{ name: hunter.name, lat: hunter.lat, lng: hunter.lng, until }]);
       const pts = [[hunter.lat, hunter.lng]];
@@ -285,7 +285,7 @@
     const how = reason === 'zone' ? 'sorti de la zone' : (by ? 'pris par ' + by : 'capturé');
     toast('⚠ ' + name + ' est tombé (' + how + ')', 'danger', 5000);
     Sensors.vibrate([200, 100, 200]);
-    Sensors.ping(700); setTimeout(() => Sensors.ping(500), 180);
+    Sensors.sfx('down');
     GameMap.addDown(lat, lng, name, 120000);
     // hidersLeft vient du serveur : seul comptage fiable au moment de la capture
     if (typeof hidersLeft === 'number') {
@@ -310,9 +310,9 @@
     const log = $('chat-log');
     const b = document.createElement('div');
     b.className = 'chat-bubble';
-    b.innerHTML = '<b>' + escapeHtml(from) + '</b> ' + escapeHtml(text);
+    b.innerHTML = '<b>' + escapeHtml(from) + '</b><span>' + escapeHtml(text) + '</span>';
     log.appendChild(b);
-    Sensors.ping(900);
+    Sensors.sfx('chat');
     setTimeout(() => { b.style.opacity = '0'; b.style.transition = 'opacity .4s'; setTimeout(() => b.remove(), 420); }, 6000);
   });
 
@@ -338,6 +338,7 @@
       state.wasPlaying = false;
       GameMap.reset();
       teardownGame();
+      state.endChimed = false;
       // La vérification de sécurité est refaite à CHAQUE partie. Le groupe a
       // bougé, la lumière a changé, le terrain n'est plus le même : une case
       // cochée il y a une heure ne certifie rien.
@@ -682,7 +683,7 @@
       if (state.wasDispersing && s && s.status === 'playing') {
         state.wasDispersing = false;
         Sensors.vibrate([120, 80, 120, 80, 350]);
-        Sensors.ping(1400); setTimeout(() => Sensors.ping(1900), 170);
+        Sensors.sfx('kickoff');
         toast(state.role === 'hunter' ? 'CHASSE OUVERTE — à toi de jouer !' : 'La chasse est lancée. Reste planqué.', 'amber', 4500);
       }
       return;
@@ -809,6 +810,9 @@
     const banner = $('end-banner');
     banner.className = 'end-banner ' + r.winner;
     banner.textContent = r.winner === 'hunters' ? 'VICTOIRE DES CHASSEURS' : 'VICTOIRE DES CACHÉS';
+    // Accord qui se résout : après 25 minutes de tension, l'oreille a besoin
+    // qu'on lui dise que c'est terminé. Une seule fois par partie.
+    if (!state.endChimed) { state.endChimed = true; Sensors.sfx('final'); }
     const tbody = $('stats-table').querySelector('tbody');
     tbody.innerHTML = '';
     r.stats.forEach((p) => {
@@ -1247,7 +1251,7 @@
     socket.emit('scanQR', { token }, (res) => {
       if (res && res.ok) {
         $('scan-status').textContent = 'CIBLE ÉLIMINÉE : ' + res.name;
-        Sensors.ping(1800); Sensors.vibrate([100, 60, 100]);
+        Sensors.sfx('tag'); Sensors.vibrate([100, 60, 100]);
         setTimeout(closeScan, 1200);
       } else {
         $('scan-status').textContent = voice(res && res.error, 'ÉCHEC — VISE UN AUTRE QR');

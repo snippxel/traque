@@ -5,7 +5,7 @@
  * "network-first" pour la coquille statique. Le cache ne sert QUE de repli quand
  * le réseau est indisponible — jamais pour figer une version périmée.
  */
-const CACHE = 'traque-shell-v13';
+const CACHE = 'traque-shell-v14';
 const SHELL = [
   '/',
   '/index.html',
@@ -26,11 +26,6 @@ const SHELL = [
   '/vendor/leaflet.js',
   '/vendor/qrcode.js',
   '/vendor/jsQR.js',
-  '/vendor/fonts.css',
-  '/vendor/fonts/share-tech-mono-400.woff2',
-  '/vendor/fonts/rajdhani-500.woff2',
-  '/vendor/fonts/rajdhani-600.woff2',
-  '/vendor/fonts/rajdhani-700.woff2',
 ];
 
 self.addEventListener('install', (e) => {
