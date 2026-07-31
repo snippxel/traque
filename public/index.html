@@ -353,8 +353,15 @@
           </table>
         </div>
       </div>
-      <button id="btn-replay" class="btn btn-primary hidden">[ REJOUER — MÊMES JOUEURS ]</button>
-      <button id="btn-home" class="btn btn-ghost">[ RETOUR ]</button>
+      <!-- Barre d'actions collante. À 12 joueurs — le plafond annoncé — le
+           débriefing poussait ces deux boutons hors de l'écran : REJOUER
+           atterrissait à y=769 et RETOUR à y=845 sur un écran de 812. Or
+           REJOUER est exactement ce qui décide si le groupe relance une partie.
+           Même grammaire que la barre de lancement du salon. -->
+      <div class="end-bar">
+        <button id="btn-replay" class="btn btn-primary hidden">[ REJOUER — MÊMES JOUEURS ]</button>
+        <button id="btn-home" class="btn btn-ghost">[ RETOUR ]</button>
+      </div>
     </div>
   </section>
 

@@ -588,7 +588,16 @@ body.kb-typing .launch-bar { display: none; }
 .install-steps .ico { color: var(--lime); }
 
 /* ============================== FIN ============================== */
-.end-wrap { max-width: 640px; margin: 0 auto; padding: 5vh 16px 50px; display: grid; gap: 14px; }
+.end-wrap { max-width: 640px; margin: 0 auto; padding: 5vh 16px 0; display: grid; gap: 14px; }
+/* Les actions restent atteignables quel que soit le nombre de joueurs : le
+   débriefing défile SOUS elles au lieu de les repousser hors de l'écran. */
+.end-bar {
+  position: sticky; bottom: 0; z-index: 5; margin: 0 -16px;
+  background: rgba(10,19,48,.97); border-top: 3px solid var(--lime);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  display: grid; gap: 8px;
+}
+.end-bar .btn { margin: 0; }
 .end-wrap > * { min-width: 0; }
 .end-personal { font-family: var(--disp); font-weight: 900; font-size: 30px; letter-spacing: -0.045em; color: var(--ink-dim); line-height: 1; }
 .end-personal.survived { color: var(--lime); }
@@ -598,11 +607,31 @@ body.kb-typing .launch-bar { display: none; }
 .end-banner.hunters { background: var(--mag); }
 .end-banner.hiders  { background: var(--lime); color: var(--bg); }
 .table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
-.stats { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+/* table-layout: fixed — sans ça, les largeurs ci-dessous et l'ellipse sur la
+   colonne nom ne sont que des suggestions, et 5 colonnes débordent d'un
+   téléphone de 375 px (385 px de contenu pour 309 disponibles). */
+.stats { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; table-layout: fixed; }
+/* Le nom cède le premier : il est déjà tronqué par le serveur à 20 caractères
+   et reste identifiable amputé, contrairement à un en-tête de colonne. */
+.stats th:nth-child(1), .stats td:nth-child(1) { width: 25%; }
+.stats th:nth-child(2), .stats td:nth-child(2) { width: 23%; }
+.stats th:nth-child(3), .stats td:nth-child(3) { width: 20%; }
+.stats th:nth-child(4), .stats td:nth-child(4) { width: 17%; }
+.stats th:nth-child(5), .stats td:nth-child(5) { width: 15%; text-align: right; }
+/* Aucune cellule ne peut forcer la table à s'élargir : « CHASSEUR » ne descend
+   pas sous sa largeur minimale et repoussait tout le tableau. */
+.stats th, .stats td { overflow: hidden; text-overflow: ellipsis; }
 .stats th { text-align: left; color: var(--ink-dim); font-size: 11px; font-weight: 900; letter-spacing: .12em; padding: 7px 8px; border-bottom: 1px solid var(--line); }
 .stats td { padding: 10px 8px; border-bottom: 1px solid var(--line-soft); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* C'est le nom qui est variable (jusqu'à 20 caractères), pas les chiffres :
+   la colonne nom cède, les colonnes de mesure gardent leur alignement. */
+.stats th:first-child, .stats td:first-child { overflow: hidden; text-overflow: ellipsis; }
 .stats tr.me td { color: var(--white); background: rgba(198,255,0,.12); font-weight: 900; }
 .stats tr.me td:first-child { box-shadow: inset 4px 0 0 var(--lime); }
+/* « Moi » était teinté lime même en ayant fini chasseur — la ligne annonçait
+   une couleur, la cellule de rôle juste à côté en annonçait une autre. */
+.stats tr.me:has(.role-cell.hunter) td { background: rgba(255,46,136,.12); }
+.stats tr.me:has(.role-cell.hunter) td:first-child { box-shadow: inset 4px 0 0 var(--mag); }
 .stats .role-cell.hunter { color: var(--mag); font-weight: 900; }
 .stats .role-cell.hider  { color: var(--lime); font-weight: 900; }
 .stats .survivor td:first-child::after { content: ' ✓'; color: var(--lime); }
@@ -733,4 +762,14 @@ body.kb-typing .launch-bar { display: none; }
   .cfg-grid { grid-template-columns: 1fr; }
   .hud-v { font-size: 19px; }
   .lobby-code { font-size: 34px; }
+  /* Cinq colonnes sur 375 px : on récupère la place dans les gouttières
+     plutôt qu'en réduisant le corps sous le plancher de 11 px. */
+  .stats th, .stats td { padding-left: 5px; padding-right: 5px; }
+  .stats td { font-size: 12px; }
+  /* L'interlettrage large est une signature de la DA, mais sur un mot de six
+     lettres dans 50 px il coûte une colonne illisible. Il cède ici, pas ailleurs. */
+  .stats th { letter-spacing: .02em; }
+  /* « CHASSEUR » ne doit jamais se lire « CHASSEU… » : le rôle descend au
+     plancher de 11 px pour garder de la marge plutôt que de se faire couper. */
+  .stats .role-cell { font-size: 11px; }
 }
