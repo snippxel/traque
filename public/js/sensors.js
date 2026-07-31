@@ -94,7 +94,13 @@ window.Sensors = (function () {
       if (headingSmoothed === null) headingSmoothed = h;
       else {
         const d = ((h - headingSmoothed) % 360 + 540) % 360 - 180;
-        headingSmoothed = (headingSmoothed + d * 0.18 + 360) % 360;
+        // Lissage ADAPTATIF. Un coefficient unique obligeait à choisir entre
+        // trembler à l'arrêt et traîner en tournant : à 0,18 le cône mettait
+        // près d'une seconde à rattraper un quart de tour. Un petit écart est
+        // du bruit de magnétomètre, on l'amortit ; un gros écart est une vraie
+        // rotation du joueur, on la suit presque au ras.
+        const a = Math.abs(d) > 25 ? 0.55 : 0.25;
+        headingSmoothed = (headingSmoothed + d * a + 360) % 360;
       }
       headingCb(headingSmoothed);
     };

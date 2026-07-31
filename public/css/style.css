@@ -766,7 +766,11 @@ body.kb-typing .launch-bar { display: none; }
   background: rgba(198,255,0,.26);
   clip-path: polygon(50% 50%, 22% 0, 78% 0);
   transform-origin: 50% 50%;
-  transition: transform .25s linear;
+  /* .25s ajoutait un retard permanent : les mesures arrivent plus vite que la
+     transition ne se termine, donc le cône ne rattrapait jamais le téléphone.
+     Le lissage est déjà fait en amont, ce raccord ne sert qu'à relier deux
+     mesures — d'où linear, et très court. */
+  transition: transform .08s linear;
 }
 .mk-self.hunter .mk-cone { background: rgba(255,46,136,.26); }
 

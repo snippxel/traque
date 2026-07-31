@@ -348,7 +348,7 @@
       resetSafety();
     }
     if (s.status === 'playing' || s.status === 'ended') state.wasPlaying = true;
-    if (s.status === 'lobby') { renderLobby(s); show('screen-lobby'); }
+    if (s.status === 'lobby') { renderLobby(s); show('screen-lobby'); armHeading(); }
     else if (s.status === 'playing') { enterGame(s); renderGame(s); }
     else if (s.status === 'ended') { renderEnd(s); show('screen-end'); teardownGame(); }
   }
@@ -495,7 +495,7 @@
     show('screen-game');
     GameMap.init();
     GameMap.invalidate();
-    armHeading();
+    startHeadingTracking();
     // Si l'écran peut se verrouiller, le GPS s'arrête et la position se fige :
     // mieux vaut prévenir le joueur une fois au début.
     Sensors.requestWakeLock().then((ok) => {
@@ -707,7 +707,7 @@
   // ne les distinguait à l'écran. Cet état est affiché dans le panneau
   // ÉQUIPES : c'est ce qui rend le problème diagnosticable au lieu de devinable.
   const GESTES = ['pointerdown', 'touchend', 'click'];
-  let headingOn = false, headingGo = null, headingWarned = false;
+  let headingGranted = false, headingGo = null, headingWarned = false, headingTracking = false;
 
   function setHeadingStatus(txt, cls) {
     const el = $('pp-heading');
@@ -716,26 +716,40 @@
     el.className = 'pp-heading' + (cls ? ' ' + cls : '');
   }
 
+  // Armé dès le SALON : le joueur y est à l'arrêt, en train de regarder son
+  // écran. Demander l'autorisation une fois la chasse lancée tombait au pire
+  // moment — il court, il ne lit pas, il balaie la fenêtre sans la voir.
+  // PAS `once` : un refus, ou un geste qu'iOS ne reconnaît pas comme
+  // intentionnel, condamnait le cône pour toute la partie. Trois types de
+  // gestes écoutés — c'est un `click` sur un vrai bouton qui a fini par
+  // marcher en test, `pointerdown` seul ne suffisait pas.
   function armHeading() {
-    if (headingGo) return;
+    if (headingGranted || headingGo) return;
     setHeadingStatus('EN ATTENTE D’UN APPUI');
-    // PAS `once` : un refus, ou un geste qu'iOS ne reconnaît pas comme
-    // intentionnel, condamnait le cône pour toute la partie. On retente à
-    // chaque geste. Et on écoute trois types : sur iOS, `pointerdown` seul
-    // n'est pas toujours accepté comme activation utilisateur.
     headingGo = async () => {
-      if (headingOn) return;
+      if (headingGranted) return;
       const ok = await Sensors.requestHeadingPermission();
       if (!ok) { setHeadingStatus('AUTORISATION REFUSÉE', 'ko'); return; }
-      headingOn = true;
+      headingGranted = true;
       GESTES.forEach((g) => document.removeEventListener(g, headingGo));
-      setHeadingStatus('AUTORISÉ — EN ATTENTE DU CAPTEUR');
-      Sensors.startHeading(
-        (h) => { GameMap.setHeading(h); setHeadingStatus('ACTIF · ' + Math.round(h) + '°', 'ok'); },
-        (st) => { if (st === 'none') headingUnavailable(); }
-      );
+      headingGo = null;
+      setHeadingStatus('AUTORISÉ');
+      if (state.inGame) startHeadingTracking();
     };
     GESTES.forEach((g) => document.addEventListener(g, headingGo));
+  }
+
+  // Le capteur ne tourne QU'EN partie : le faire tourner pendant que l'hôte
+  // règle le salon ne sert à rien et coûte de la batterie.
+  function startHeadingTracking() {
+    if (headingTracking) return;
+    if (!headingGranted) { armHeading(); return; }
+    headingTracking = true;
+    setHeadingStatus('AUTORISÉ — EN ATTENTE DU CAPTEUR');
+    Sensors.startHeading(
+      (h) => { GameMap.setHeading(h); setHeadingStatus('ACTIF · ' + Math.round(h) + '°', 'ok'); },
+      (st) => { if (st === 'none') headingUnavailable(); }
+    );
   }
 
   function headingUnavailable() {
@@ -746,9 +760,11 @@
     toast('Boussole indisponible sur ce téléphone — pas de cône d’orientation.', '', 6000);
   }
 
+  // On arrête le capteur, mais on GARDE l'autorisation : une fois accordée,
+  // elle vaut pour toute la session. Redemander à chaque partie serait une
+  // fenêtre de plus entre le groupe et le lancement.
   function disarmHeading() {
-    if (headingGo) GESTES.forEach((g) => document.removeEventListener(g, headingGo));
-    headingGo = null; headingOn = false; headingWarned = false;
+    headingTracking = false; headingWarned = false;
     setHeadingStatus('—');
     Sensors.stopHeading();
   }
