@@ -530,15 +530,27 @@ body.kb-typing .launch-bar { display: none; }
 .kickoff { position: fixed; inset: 0; z-index: 84; display: grid; place-items: center;
   text-align: center; padding: 24px; pointer-events: none; overflow: hidden; }
 .kickoff::before { content: ''; position: absolute; inset: 0; background: var(--mag);
-  transform-origin: left center; animation: capWipe 300ms var(--hard) both; }
+  transform-origin: left center; animation: capWipe 420ms var(--hard) both; }
 .kickoff.hider::before { background: var(--lime); }
-.ko-title { position: relative; font-family: var(--disp); font-weight: 900;
-  font-size: clamp(34px, 12vw, 58px); letter-spacing: -0.05em; line-height: .9;
-  color: var(--bg); animation: capSlam 380ms var(--slam) 180ms both; }
-.ko-sub { position: relative; font-size: 13px; font-weight: 900; letter-spacing: .14em;
-  color: var(--bg); margin-top: 10px; animation: capSlam 380ms var(--slam) 270ms both; }
-.kickoff.out { animation: koOut 260ms var(--out) both; }
-@keyframes koOut { to { opacity: 0; transform: translateY(-8px); } }
+.ko-inner { position: relative; }
+/* Cinq frappes au lieu de trois, et un titre deux fois plus gros : à 1,46 s et
+   trois temps, le moment le plus décisif de la partie passait pour un
+   entrefilet. Il tient maintenant 2,3 s, avec une barre qui balaie entre le
+   titre et sa consigne pour marquer le temps fort. */
+.ko-kicker { font-size: 12px; font-weight: 900; letter-spacing: .2em; color: var(--bg);
+  opacity: .72; animation: capSlam 340ms var(--slam) 240ms both; }
+.ko-title { font-family: var(--disp); font-weight: 900;
+  font-size: clamp(54px, 21vw, 104px); letter-spacing: -0.06em; line-height: .86;
+  color: var(--bg); margin-top: 6px; animation: koSlam 460ms var(--slam) 380ms both; }
+.ko-rule { height: 5px; background: var(--bg); margin: 14px auto 0; width: 78%;
+  transform-origin: left center; animation: koBar 380ms var(--hard) 620ms both; }
+.ko-sub { font-size: 14px; font-weight: 900; letter-spacing: .14em;
+  color: var(--bg); margin-top: 13px; animation: capSlam 380ms var(--slam) 760ms both; }
+@keyframes koSlam { from { opacity: 0; transform: translateX(-46px) skewX(-10deg); }
+  to { opacity: 1; transform: none; } }
+@keyframes koBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.kickoff.out { animation: koOut 300ms var(--out) both; }
+@keyframes koOut { to { opacity: 0; transform: translateY(-10px); } }
 
 /* Alerte "repéré" */
 .spot-alert { position: fixed; inset: 0; z-index: 82; display: grid; place-items: center; text-align: center; padding: 24px;
@@ -725,6 +737,10 @@ body.kb-typing .launch-bar { display: none; }
    20 à 30° en ville, un faisceau fin prétendrait à une exactitude qui n'existe
    pas. La carte, elle, reste nord en haut — seul ce cône tourne. */
 .mk-cone {
+  /* Caché tant qu'aucun cap réel n'est arrivé. Il était visible par défaut et
+     se faisait masquer après coup quand la permission échouait : le joueur
+     voyait un cône apparaître puis disparaître sans explication. */
+  display: none;
   position: absolute; left: 50%; top: 50%; width: 62px; height: 62px;
   margin: -31px 0 0 -31px; pointer-events: none;
   background: rgba(198,255,0,.26);

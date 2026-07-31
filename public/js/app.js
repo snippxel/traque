@@ -702,20 +702,37 @@
   // premier appui APRÈS l'entrée en partie : demander une permission sur
   // l'écran d'accueil, avant que le joueur ait vu la moindre carte, ne veut
   // rien dire pour lui. Sur Android il n'y a pas de fenêtre du tout.
-  let headingArmed = false;
+  let headingOn = false, headingGo = null, headingWarned = false;
   function armHeading() {
-    if (headingArmed) return;
-    headingArmed = true;
-    const go = async () => {
-      document.removeEventListener('pointerdown', go);
+    if (headingGo) return;
+    // PAS `once` : si la permission est refusée ou si le geste n'est pas
+    // reconnu, on retente au prochain appui. La version précédente n'essayait
+    // qu'une seule fois, donc un premier échec condamnait le cône pour toute
+    // la partie sans que rien ne le dise.
+    headingGo = async () => {
+      if (headingOn) return;
       const ok = await Sensors.requestHeadingPermission();
-      if (!ok) { GameMap.setHeading(null); return; }
-      Sensors.startHeading((h) => GameMap.setHeading(h));
+      if (!ok) return;
+      headingOn = true;
+      document.removeEventListener('pointerdown', headingGo);
+      Sensors.startHeading(
+        (h) => GameMap.setHeading(h),
+        (st) => { if (st === 'none') headingUnavailable(); }
+      );
     };
-    document.addEventListener('pointerdown', go, { once: true });
+    document.addEventListener('pointerdown', headingGo);
+  }
+  // Un cône absent doit s'expliquer. Sans ce mot, l'appareil sans boussole et
+  // l'appareil qui marche étaient indiscernables : rien ne s'affichait.
+  function headingUnavailable() {
+    GameMap.setHeading(null);
+    if (headingWarned) return;
+    headingWarned = true;
+    toast('Boussole indisponible sur ce téléphone — pas de cône d’orientation.', '', 6000);
   }
   function disarmHeading() {
-    headingArmed = false;
+    if (headingGo) document.removeEventListener('pointerdown', headingGo);
+    headingGo = null; headingOn = false; headingWarned = false;
     Sensors.stopHeading();
   }
 
@@ -727,15 +744,16 @@
     const el = $('kickoff');
     if (!el) return;
     kickoffTimers.forEach(clearTimeout); kickoffTimers = [];
-    el.classList.toggle('hider', role !== 'hunter');
-    $('ko-title').textContent = role === 'hunter' ? 'CHASSE OUVERTE' : 'PLANQUE-TOI';
-    $('ko-sub').textContent = role === 'hunter' ? 'TROUVE-LES' : 'ILS ARRIVENT';
+    const hunter = role === 'hunter';
+    el.classList.toggle('hider', !hunter);
+    $('ko-title').textContent = hunter ? 'CHASSEZ' : 'FUYEZ';
+    $('ko-sub').textContent = hunter ? 'TROUVE-LES AVANT LA FIN' : 'METS-TOI À COUVERT';
     el.classList.remove('hidden', 'out');
     void el.offsetWidth; // relance les animations si le bandeau est rejoué
     kickoffTimers.push(setTimeout(() => {
       el.classList.add('out');
-      kickoffTimers.push(setTimeout(() => el.classList.add('hidden'), 260));
-    }, 1200));
+      kickoffTimers.push(setTimeout(() => el.classList.add('hidden'), 300));
+    }, 2000));
   }
   function hideKickoff() {
     kickoffTimers.forEach(clearTimeout); kickoffTimers = [];
@@ -764,7 +782,12 @@
       // le sente sans avoir les yeux sur l'écran.
       if (state.wasDispersing && s && s.status === 'playing') {
         state.wasDispersing = false;
-        Sensors.vibrate([120, 80, 120, 80, 350]);
+        // Vibration calée sur les frappes de l'écran, pas envoyée en bloc au
+        // début : une secousse qui ne correspond à rien de visible se ressent
+        // comme une notification, pas comme un événement de jeu. Même principe
+        // que la capture, dont le buzz est décalé pour tomber sur la basse.
+        // [attente, frappe...] — 240 kicker · 380 titre · 620 barre · 760 consigne
+        Sensors.vibrate([0, 240, 45, 95, 70, 170, 55, 85, 260]);
         Sensors.sfx('kickoff');
         showKickoff(state.role);
       }

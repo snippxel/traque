@@ -52,7 +52,7 @@ window.Sensors = (function () {
   // la carte. Ce qui suit répond à un autre besoin — dire au joueur dans quel
   // sens il est tourné, pour qu'il puisse relier une carte nord en haut à ce
   // qu'il a devant les yeux. La carte, elle, ne pivote jamais.
-  let headingCb = null, headingHandler = null, headingSmoothed = null;
+  let headingCb = null, headingHandler = null, headingSmoothed = null, headingTimer = null;
 
   function headingFromEvent(e) {
     // iOS expose directement un cap vrai nord, déjà corrigé de la déclinaison.
@@ -76,12 +76,18 @@ window.Sensors = (function () {
     try { return (await D.requestPermission()) === 'granted'; } catch (_) { return false; }
   }
 
-  function startHeading(cb) {
+  // onStatus reçoit 'ok' à la première mesure valable, ou 'none' si rien n'est
+  // jamais arrivé. Sans ça, un appareil sans magnétomètre ne se distinguait pas
+  // d'un appareil qui marche : dans les deux cas il ne se passait rien.
+  function startHeading(cb, onStatus) {
     stopHeading();
     headingCb = cb;
+    let gotOne = false;
+    headingTimer = setTimeout(() => { if (!gotOne && onStatus) onStatus('none'); }, 4000);
     headingHandler = (e) => {
       const h = headingFromEvent(e);
       if (h === null) return;
+      if (!gotOne) { gotOne = true; clearTimeout(headingTimer); headingTimer = null; if (onStatus) onStatus('ok'); }
       // Lissage circulaire. Le magnétomètre saute de 20 à 30° près d'une
       // voiture ou d'un portail ; un cône qui tremble est pire qu'un cône
       // absent, il donne l'illusion d'une précision qui n'existe pas.
@@ -97,6 +103,7 @@ window.Sensors = (function () {
   }
 
   function stopHeading() {
+    if (headingTimer) { clearTimeout(headingTimer); headingTimer = null; }
     if (headingHandler) {
       window.removeEventListener('deviceorientationabsolute', headingHandler, true);
       window.removeEventListener('deviceorientation', headingHandler, true);

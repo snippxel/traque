@@ -82,7 +82,7 @@ window.GameMap = (function () {
       coneEl.style.display = 'none';
       return;
     }
-    coneEl.style.display = '';
+    coneEl.style.display = 'block';
     // Même piège que la flèche de cap : rotate() s'interpole numériquement,
     // donc on n'ajoute que le plus court delta pour ne pas faire un tour
     // complet en passant le nord.

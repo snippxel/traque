@@ -303,8 +303,12 @@
          Purement décoratif : ne capte jamais le toucher (pointer-events: none),
          parce qu'un joueur peut avoir besoin d'agir pendant. -->
     <div id="kickoff" class="kickoff hidden" aria-hidden="true">
-      <div class="ko-title" id="ko-title">CHASSE OUVERTE</div>
-      <div class="ko-sub" id="ko-sub">À TOI DE JOUER</div>
+      <div class="ko-inner">
+        <div class="ko-kicker" id="ko-kicker">DISPERSION TERMINÉE</div>
+        <div class="ko-title" id="ko-title">CHASSEZ</div>
+        <div class="ko-rule"></div>
+        <div class="ko-sub" id="ko-sub">TROUVE-LES AVANT LA FIN</div>
+      </div>
     </div>
     <div id="zone-alert" class="zone-alert hidden" role="alert" aria-live="assertive">
       <div class="za-bar">
