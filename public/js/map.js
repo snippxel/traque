@@ -170,28 +170,64 @@ window.GameMap = (function () {
   // la faisait passer pour interdite. Le décompte du bandeau dit déjà quand
   // elle tombera.
   let outsideVeil = null;
+  let radiusAnim = null;   // handle rAF du rétrécissement en cours
+  let shownRadius = null;  // rayon AFFICHÉ — diffère du rayon logique pendant l'animation
+
+  // Le cercle et le voile doivent bouger ENSEMBLE : le voile est le monde troué
+  // du disque jouable, si l'un avance sans l'autre le trou déborde du trait.
+  function paintZone(center, radius) {
+    // 64 points au lieu de 96 : le voile est reprojeté à chaque image pendant
+    // le rétrécissement, et l'écart ne se voit pas à cette échelle.
+    outsideVeil.setLatLngs([WORLD, ringPoints(center, radius, 64, true)]);
+    zoneCircle.setRadius(radius);
+    shownRadius = radius;
+  }
+
   function setZone(zone) {
     if (!map || !zone || !zone.center) return;
     const c = [zone.center.lat, zone.center.lng];
 
     // Voile sur tout ce qui est hors de la zone actuelle : un polygone monde
     // troué du disque jouable. C'est le seul endroit vraiment interdit.
-    const hole = ringPoints(zone.center, zone.radius, 96, true);
     if (!outsideVeil) {
-      outsideVeil = L.polygon([WORLD, hole], {
+      outsideVeil = L.polygon([WORLD, ringPoints(zone.center, zone.radius, 96, true)], {
         stroke: false, fillColor: '#050A1C', fillOpacity: 0.62, interactive: false,
       }).addTo(map);
-    } else {
-      outsideVeil.setLatLngs([WORLD, hole]);
     }
     outsideVeil.bringToBack();
 
     if (!zoneCircle) {
       zoneCircle = L.circle(c, { radius: zone.radius, color: '#C6FF00', weight: 4, fill: false, interactive: false }).addTo(map);
+      paintZone(zone.center, zone.radius);
       // Première zone reçue : on cadre la carte dessus pour voir tout le terrain de jeu
       try { map.fitBounds(zoneCircle.getBounds().pad(0.08)); hasCentered = true; } catch (_) {}
     } else {
-      zoneCircle.setLatLng(c); zoneCircle.setRadius(zone.radius);
+      zoneCircle.setLatLng(c);
+      // Le rétrécissement par paliers est le mécanisme central du jeu : il a un
+      // bandeau et un son, mais le cercle sautait d'un rayon à l'autre. On
+      // n'anime QUE la contraction — un agrandissement (reprise de session,
+      // resynchronisation) doit rester instantané, sinon la zone gonfle sans
+      // raison sous les yeux d'un joueur qui revient.
+      const cible = zone.radius;
+      const depuis = shownRadius === null ? cible : shownRadius;
+      const reduit = cible < depuis - 1;
+      const sobre = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!reduit || sobre) {
+        if (radiusAnim) { cancelAnimationFrame(radiusAnim); radiusAnim = null; }
+        paintZone(zone.center, cible);
+      } else {
+        if (radiusAnim) cancelAnimationFrame(radiusAnim);
+        const t0 = performance.now(), duree = 700;
+        const pas = (now) => {
+          const t = Math.min(1, (now - t0) / duree);
+          // Ease-out cubique : ça part vite puis ça se pose. On lit « la zone
+          // se referme » sans avoir eu besoin de regarder le début.
+          const e = 1 - Math.pow(1 - t, 3);
+          paintZone(zone.center, depuis + (cible - depuis) * e);
+          radiusAnim = t < 1 ? requestAnimationFrame(pas) : null;
+        };
+        radiusAnim = requestAnimationFrame(pas);
+      }
     }
 
     // Zone suivante : une cible à rejoindre, pas une menace. Tireté, sans fond,
@@ -218,6 +254,8 @@ window.GameMap = (function () {
 
   function reset() {
     if (!map) return;
+    if (radiusAnim) { cancelAnimationFrame(radiusAnim); radiusAnim = null; }
+    shownRadius = null;
     if (selfMarker) { map.removeLayer(selfMarker); selfMarker = null; }
     if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
     if (zoneCircle) { map.removeLayer(zoneCircle); zoneCircle = null; }

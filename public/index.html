@@ -296,6 +296,16 @@
          clignotant (#zone-frame), et la bannière porte enfin le cap et la
          distance — l'information qui manquait. -->
     <div id="zone-frame" class="zone-frame hidden" aria-hidden="true"></div>
+
+    <!-- Ouverture de la chasse. Le son et la vibration existaient déjà ;
+         visuellement, le bandeau de départ disparaissait, point. C'est pourtant
+         le moment qui change ce que TOUS les joueurs font dans la seconde.
+         Purement décoratif : ne capte jamais le toucher (pointer-events: none),
+         parce qu'un joueur peut avoir besoin d'agir pendant. -->
+    <div id="kickoff" class="kickoff hidden" aria-hidden="true">
+      <div class="ko-title" id="ko-title">CHASSE OUVERTE</div>
+      <div class="ko-sub" id="ko-sub">À TOI DE JOUER</div>
+    </div>
     <div id="zone-alert" class="zone-alert hidden" role="alert" aria-live="assertive">
       <div class="za-bar">
         <div class="za-lead">

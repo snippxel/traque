@@ -183,7 +183,7 @@
     state.alertDeadline = deadline;
     $('zone-alert').classList.remove('hidden');
     $('zone-frame').classList.remove('hidden');
-    updateZoneBearing();
+    updateZoneBearing(true);
     Sensors.startAlarm();
     Sensors.vibrate([300, 150, 300, 150, 600]);
   });
@@ -661,7 +661,9 @@
   // Le joueur recevait un ordre ("REVIENS") et un décompte, mais rien qui dise
   // où aller. Le cap est donné nord en haut, comme la carte : les deux se lisent
   // dans le même repère, et aucune permission boussole n'est nécessaire.
-  function updateZoneBearing() {
+  // Angle cumulé, volontairement NON borné à [0,360[ : voir plus bas.
+  let arrowAngle = null;
+  function updateZoneBearing(reset) {
     const z = state.last && state.last.zone;
     const p = state.selfPos;
     const arrow = $('za-arrow');
@@ -672,12 +674,52 @@
       return;
     }
     arrow.classList.remove('hidden');
-    arrow.style.transform = 'rotate(' + Math.round(GameMap.bearing(p, z.center)) + 'deg)';
+    const target = GameMap.bearing(p, z.center);
+    if (reset || arrowAngle === null) {
+      // Première pose : sans transition, sinon la flèche balaierait depuis 0°
+      // à l'ouverture de l'alerte.
+      arrowAngle = target;
+      arrow.style.transition = 'none';
+      arrow.style.transform = 'rotate(' + target.toFixed(1) + 'deg)';
+      void arrow.offsetWidth;
+      arrow.style.transition = '';
+    } else {
+      // rotate() s'interpole numériquement : passer de 358° à 2° faisait
+      // repartir la flèche en arrière sur 356°, en pleine alerte hors-zone.
+      // On n'ajoute donc que le plus court chemin angulaire.
+      const delta = ((target - arrowAngle) % 360 + 540) % 360 - 180;
+      arrowAngle += delta;
+      arrow.style.transform = 'rotate(' + arrowAngle.toFixed(1) + 'deg)';
+    }
     // Distance jusqu'au BORD de la zone, pas jusqu'au centre : c'est ce que le
     // joueur doit réellement parcourir pour être de nouveau en sécurité.
     const toEdge = Math.round(haversine(p, z.center) - z.radius);
     dist.textContent = toEdge > 0 ? toEdge + ' M' : 'ZONE ATTEINTE';
   }
+  // Ouverture de la chasse. Le son et la vibration étaient déjà calés ; il
+  // manquait l'image. ~1,46 s au total, contre ~2 s pour la capture : ce n'est
+  // pas la conclusion de la partie, c'est son coup d'envoi.
+  let kickoffTimers = [];
+  function showKickoff(role) {
+    const el = $('kickoff');
+    if (!el) return;
+    kickoffTimers.forEach(clearTimeout); kickoffTimers = [];
+    el.classList.toggle('hider', role !== 'hunter');
+    $('ko-title').textContent = role === 'hunter' ? 'CHASSE OUVERTE' : 'PLANQUE-TOI';
+    $('ko-sub').textContent = role === 'hunter' ? 'TROUVE-LES' : 'ILS ARRIVENT';
+    el.classList.remove('hidden', 'out');
+    void el.offsetWidth; // relance les animations si le bandeau est rejoué
+    kickoffTimers.push(setTimeout(() => {
+      el.classList.add('out');
+      kickoffTimers.push(setTimeout(() => el.classList.add('hidden'), 260));
+    }, 1200));
+  }
+  function hideKickoff() {
+    kickoffTimers.forEach(clearTimeout); kickoffTimers = [];
+    const el = $('kickoff');
+    if (el) el.classList.add('hidden');
+  }
+
   // Alerte "repéré au radar" : flash prolongé (6 s) pour être bien remarqué,
   // puis on laisse la carte + la bannière décomptée (chasseur visible 30 s).
   let spotAlertTimer = null;
@@ -701,9 +743,7 @@
         state.wasDispersing = false;
         Sensors.vibrate([120, 80, 120, 80, 350]);
         Sensors.sfx('kickoff');
-        // Le message du caché s'affichait sur la plaque magenta du chasseur.
-        toast(state.role === 'hunter' ? 'CHASSE OUVERTE — à toi de jouer !' : 'La chasse est lancée. Reste planqué.',
-          state.role === 'hunter' ? 'hunter' : '', 4500);
+        showKickoff(state.role);
       }
       return;
     }
@@ -776,6 +816,7 @@
 
   function teardownGame() {
     state.inGame = false;
+    hideKickoff();
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     Sensors.stopAlarm();
     Sensors.releaseWakeLock();
