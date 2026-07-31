@@ -195,7 +195,7 @@
     state.zoneClosingAt = atTime;
     wantBanner('zone-closing', true);
     updateAlertLane();
-    Sensors.vibrate([200, 100, 200]);
+    Sensors.vibrate([300, 130, 300, 130, 460]);
     Sensors.sfx('shrink');
   });
 
@@ -246,8 +246,13 @@
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
     // Mais s'il est loin de la vue actuelle, il reste invisible sans recadrage :
     // le joueur voyait le toast sans jamais voir le point apparaître.
-    Sensors.sfx('third');
-    Sensors.vibrate(120);
+    // Un caché qui sort est une occasion de capture, et elle est brève. Elle
+    // avait le souffle de transition générique et 120 ms de buzz : ratable en
+    // courant. Son propre, et un motif long en trois temps — sur iPhone, où
+    // l'API Vibration n'existe pas, c'est le nombre de secousses qui porte,
+    // pas leur durée.
+    Sensors.sfx('breach');
+    Sensors.vibrate([260, 110, 260, 110, 520]);
     toast('SORTIE DE ZONE : ' + name, 'danger', 4000);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const pts = [[lat, lng]];
@@ -288,7 +293,7 @@
   socket.on('teammate:down', ({ name, reason, by, lat, lng, hidersLeft }) => {
     const how = reason === 'zone' ? 'sorti de la zone' : (by ? 'pris par ' + by : 'capturé');
     toast('⚠ ' + name + ' est tombé (' + how + ')', 'danger', 5000);
-    Sensors.vibrate([200, 100, 200]);
+    Sensors.vibrate([280, 120, 280, 120, 400]);
     Sensors.sfx('down');
     GameMap.addDown(lat, lng, name, 120000);
     // hidersLeft vient du serveur : seul comptage fiable au moment de la capture
@@ -542,6 +547,16 @@
     // Zone
     if (s.zone) {
       $('hud-radius').textContent = Math.round(s.zone.radius) + 'm';
+      // Le palier lui-même n'avait AUCUN retour : seul son avertissement une
+      // minute avant en avait un. Le terrain rétrécissait donc en silence, au
+      // moment précis où il fallait bouger. On ne le signale qu'à la
+      // CONTRACTION — un rayon qui remonte est une resynchronisation, pas un
+      // événement de jeu.
+      if (state.lastRadius != null && s.zone.radius < state.lastRadius - 1) {
+        Sensors.sfx('shrink');
+        Sensors.vibrate([300, 120, 300, 120, 560]);
+      }
+      state.lastRadius = s.zone.radius;
       GameMap.setZone(s.zone);
       $('hud-shrink').classList.toggle('hidden', !s.zone.nextShrinkAt);
     }
@@ -922,6 +937,9 @@
 
   function teardownGame() {
     state.inGame = false;
+    // Sinon le premier état de la partie suivante, ou d'une reprise de session,
+    // serait lu comme un rétrécissement.
+    state.lastRadius = null;
     hideKickoff();
     disarmHeading();
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
@@ -1466,7 +1484,7 @@
       toast('Attends la fin de la dispersion pour éliminer.');
       return;
     }
-    Sensors.vibrate(20); // l'action principale du chasseur ne donnait aucun retour tactile
+    Sensors.vibrate(35); // l'action principale du chasseur ne donnait aucun retour tactile
     openScan();
   };
   $('btn-radar').onclick = () => {
@@ -1543,7 +1561,7 @@
   }
   function onJoinScanDetect(code) {
     $('scan-status').textContent = 'PARTIE ' + code + ' — connexion…';
-    Sensors.sfx('tag'); Sensors.vibrate([80, 50, 80]);
+    Sensors.sfx('tag'); Sensors.vibrate([140, 70, 140]);
     $('input-code').value = code;
     closeModal($('modal-scan'));
     doJoin();
@@ -1554,11 +1572,11 @@
     socket.emit('scanQR', { token }, (res) => {
       if (res && res.ok) {
         $('scan-status').textContent = 'CIBLE ÉLIMINÉE : ' + res.name;
-        Sensors.sfx('tag'); Sensors.vibrate([100, 60, 100]);
+        Sensors.sfx('tag'); Sensors.vibrate([180, 80, 180, 80, 340]);
         setTimeout(closeScan, 1200);
       } else {
         $('scan-status').textContent = voice(res && res.error, 'ÉCHEC — VISE UN AUTRE QR');
-        Sensors.vibrate(80);
+        Sensors.vibrate([90, 60, 90]);
         // resumeScan() ne no-ope plus : la boucle rAF redémarre réellement.
         setTimeout(() => QR.resumeScan(), 900);
       }

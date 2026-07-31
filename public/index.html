@@ -312,6 +312,12 @@
          distance — l'information qui manquait. -->
     <div id="zone-frame" class="zone-frame hidden" aria-hidden="true"></div>
 
+    <!-- Retour haptique iOS. Safari n'implémente pas l'API Vibration : basculer
+         un interrupteur natif est le seul moyen de déclencher une secousse
+         depuis une page web (iOS 17.4+). Hors flux, invisible, injoignable au
+         clavier — c'est un actionneur, pas un contrôle. -->
+    <input type="checkbox" switch id="ios-haptic" class="sr-only" tabindex="-1" aria-hidden="true" />
+
     <!-- Ouverture de la chasse. Le son et la vibration existaient déjà ;
          visuellement, le bandeau de départ disparaissait, point. C'est pourtant
          le moment qui change ce que TOUS les joueurs font dans la seconde.

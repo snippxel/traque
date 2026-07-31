@@ -137,7 +137,53 @@ window.Sensors = (function () {
   function releaseWakeLock() { try { wakeLock && wakeLock.release(); } catch (_) {} wakeLock = null; }
 
   // -------------------- Vibration --------------------
-  function vibrate(pattern) { try { navigator.vibrate && navigator.vibrate(pattern); } catch (_) {} }
+  // -------------------- Retour haptique --------------------
+  // iOS n'implémente PAS l'API Vibration — ni dans Safari, ni en mode
+  // application. navigator.vibrate y est absent, donc toutes les vibrations du
+  // jeu n'ont jamais rien produit sur iPhone.
+  //
+  // Depuis iOS 17.4, basculer un <input type="checkbox" switch> déclenche un
+  // vrai retour haptique système. C'est un détournement, mais c'est le seul
+  // levier disponible depuis une page web. Il ne donne qu'une brève secousse
+  // par bascule : on ne peut pas moduler la durée, seulement le nombre et
+  // l'espacement. On rejoue donc le RYTHME du motif, pas son intensité.
+  let iosSwitch = null;
+  let iosTimers = [];
+  function iosHapticInit() {
+    if (iosSwitch || typeof document === 'undefined') return iosSwitch;
+    iosSwitch = document.getElementById('ios-haptic');
+    return iosSwitch;
+  }
+  function iosTap() {
+    const el = iosHapticInit();
+    if (!el) return;
+    try { el.click(); } catch (_) {}
+  }
+  // Rejoue les temps forts d'un motif [vibre, pause, vibre, pause, ...] en
+  // tapotant à chaque début d'impulsion.
+  function iosPattern(pattern) {
+    iosTimers.forEach(clearTimeout); iosTimers = [];
+    const p = Array.isArray(pattern) ? pattern : [pattern];
+    let t = 0;
+    for (let i = 0; i < p.length; i++) {
+      const d = Math.max(0, +p[i] || 0);
+      if (i % 2 === 0 && d > 0) {
+        const at = t;
+        iosTimers.push(setTimeout(iosTap, at));
+        // Une impulsion longue est rendue par plusieurs tapes rapprochées :
+        // c'est la seule façon d'exprimer « fort » sans contrôle d'intensité.
+        if (d >= 240) iosTimers.push(setTimeout(iosTap, at + 70));
+        if (d >= 420) iosTimers.push(setTimeout(iosTap, at + 140));
+      }
+      t += d;
+    }
+  }
+  function vibrate(pattern) {
+    try {
+      if (navigator.vibrate) { navigator.vibrate(pattern); return; }
+    } catch (_) {}
+    iosPattern(pattern);
+  }
 
   // -------------------- Design sonore (WebAudio) --------------------
   // L'ancienne version jouait des ondes CARRÉES à attaque instantanée : c'est la
@@ -251,6 +297,17 @@ window.Sensors = (function () {
                       sub(64, 52, 1.5, 0, 0.13); },
     shrink:   () => { tone({ f: 320, to: 180, dur: 0.9, g: 0.10, a: 0.05, type: 'triangle', fc: 1400, fcTo: 420, rev: 0.34 });
                       noise({ f: 900, to: 220, dur: 0.7, g: 0.035, q: 0.9, ftype: 'lowpass', rev: 0.3 }); },
+    // Un caché vient de sortir de la zone, annoncé au CHASSEUR. Cousin
+    // volontaire de `outzone`, la sirène que le fuyard entend au même instant :
+    // même figure à deux notes, transposée plus haut et deux fois plus rapide.
+    // On doit y lire l'alarme de QUELQU'UN D'AUTRE, pas la sienne.
+    // Avant, cet événement empruntait `third` — un souffle de transition
+    // partagé avec six autres choses, donc parfaitement manquable.
+    breach:   () => { sub(70, 46, 0.5, 0, 0.26);
+                      for (let i = 0; i < 3; i++) { const t = i * 0.26;
+                        bell(587.33, 0.34, t, 0.12, 0.34);
+                        bell(698.46, 0.34, t + 0.13, 0.12, 0.34); }
+                      noise({ f: 3200, to: 700, dur: 0.4, g: 0.04, q: 0.8, rev: 0.3 }); },
     chat:     () => { tone({ f: 587.33, dur: 0.26, g: 0.075, a: 0.005, fc: 3200, rev: 0.22 });
                       tone({ f: 880, dur: 0.19, g: 0.038, a: 0.005, fc: 3600, rev: 0.22 }); },
     captured: () => { noise({ f: 260, to: 5200, dur: 0.62, g: 0.085, q: 0.7, rev: 0.25 });
