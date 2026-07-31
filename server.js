@@ -61,6 +61,15 @@ const socketIndex = new Map();
 // ----------------------------------------------------------------------------
 // Helpers d'émission
 // ----------------------------------------------------------------------------
+// Rejoue le fil de discussion à un socket qui arrive ou revient. L'état du jeu
+// se rattrapait déjà tout seul au tick suivant ; le chat, lui, ne se rattrapait
+// jamais — un joueur qui perdait le réseau ne voyait plus jamais ce qui avait
+// été dit pendant sa coupure.
+function sendChatHistory(socket, room) {
+  if (!room.chat || !room.chat.length) return;
+  io.to(socket.id).emit('chat:history', room.chat);
+}
+
 function emitStateToRoom(room) {
   // Isolation par joueur : si stateFor() plante pour l'un d'eux, les autres
   // reçoivent quand même leur état (sinon toute la salle se fige en silence).
@@ -234,6 +243,7 @@ io.on('connection', (socket) => {
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
+    sendChatHistory(socket, room);
     emitStateToRoom(room);
   });
 
@@ -269,6 +279,7 @@ io.on('connection', (socket) => {
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
+    sendChatHistory(socket, room);
     emitStateToRoom(room);
   });
 
@@ -283,6 +294,7 @@ io.on('connection', (socket) => {
     player.disconnectAt = null;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
+    sendChatHistory(socket, room);
     emitStateToRoom(room);
   });
 
@@ -400,6 +412,9 @@ io.on('connection', (socket) => {
     if (now - (player.lastChatAt || 0) < 600) return;
     player.lastChatAt = now;
     const payload = { from: player.name, text: msg, at: now };
+    // On archive AVANT de diffuser : un joueur hors réseau à cet instant ne
+    // recevra rien, mais retrouvera le message à sa reconnexion.
+    room.addChat(payload);
     // Chat GLOBAL : diffusé à tous les joueurs connectés de la salle
     for (const p of room.players.values()) {
       if (p.connected && p.socketId) io.to(p.socketId).emit('chat', payload);

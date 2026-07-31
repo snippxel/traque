@@ -21,6 +21,7 @@ const ZONE_TOLERANCE_MAX_M = 50; // marge d'incertitude GPS avant conversion hor
 const RECONNECT_GRACE_MS = 90 * 1000; // lobby
 const RECONNECT_GRACE_PLAYING_MS = 30 * 60 * 1000; // en jeu : 30 min
 const FLASH_MS = 6000; // durée d'un flash de sortie de zone chez les chasseurs
+const CHAT_HISTORY_MAX = 60; // messages conservés pour rejeu après reconnexion
 const RADAR_USES = 3; // nombre de radars par partie et par chasseur
 const RADAR_REVEAL_MS = 60 * 1000; // la position révélée reste visible 1 min (chasseurs)
 const COUNTER_REVEAL_MS = 30 * 1000; // le caché repéré voit le chasseur 30 s
@@ -98,6 +99,12 @@ class Room {
     this.endTime = null;
     this.shrinkSchedule = []; // [{atTime, radius}]
     this.lastReveal = new Map(); // hiderId -> {lat,lng,time}
+    // Historique du chat. Il n'y en avait AUCUN : les messages étaient diffusés
+    // aux seuls joueurs connectés à l'instant T, et jamais rejoués. Un joueur
+    // qui perdait le réseau trente secondes ne voyait jamais ce qui s'était dit
+    // — définitivement, alors que l'état du jeu, lui, se rattrape au tick
+    // suivant. Borné : une partie vit en mémoire, on ne la laisse pas gonfler.
+    this.chat = [];
     this.tempReveals = []; // révélations exactes temporaires {playerId,name,lat,lng,until,kind}
     this.counterReveals = []; // {hiderId, hunterId, until} : le caché repéré voit le chasseur
     this.nextRevealAt = null;
@@ -162,6 +169,11 @@ class Room {
   }
 
   // --- Attribution des rôles (lobby) --------------------------------------
+  addChat(payload) {
+    this.chat.push(payload);
+    if (this.chat.length > CHAT_HISTORY_MAX) this.chat.splice(0, this.chat.length - CHAT_HISTORY_MAX);
+  }
+
   assignRandom() {
     const ids = [...this.players.keys()];
     const nbHunters = Math.max(1, Math.round(ids.length * HUNTER_RATIO));
@@ -221,6 +233,9 @@ class Room {
     }
 
     this.center = { lat: hostPos.lat, lng: hostPos.lng };
+    // Fil de discussion remis à zéro : le bavardage du salon, ou de la partie
+    // précédente après un REJOUER, n'a pas à être rejoué en pleine chasse.
+    this.chat = [];
     this.startTime = Date.now();
     // Phase de départ : les cachés fuient. Le timer et la zone ne démarrent qu'après.
     this.dispersionEndsAt = this.startTime + this.config.dispersionSeconds * 1000;

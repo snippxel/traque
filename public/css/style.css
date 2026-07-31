@@ -319,8 +319,15 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 /* Barre de lancement collée en bas */
 .launch-bar {
   position: sticky; bottom: 0; z-index: 1000;   /* au-dessus des calques Leaflet */
-  background: rgba(10,19,48,.97); border-top: 3px solid var(--lime);
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  /* Fond OPAQUE : à .97 il restait un voile par lequel les préréglages de
+     format transparaissaient sous la barre. Une barre collante doit couvrir
+     franchement ce qu'elle recouvre. */
+  background: var(--bg); border-top: 3px solid var(--lime);
+  /* Pas de env(safe-area-inset-bottom) ici : body l'applique déjà (l. 99).
+     Le compter deux fois ajoutait ~34 pt fantômes en mode application — d'où
+     un défaut invisible dans Safari, où l'inset vaut 0, et bien réel une fois
+     l'app installée sur l'écran d'accueil. */
+  padding: 12px 16px;
   max-width: 520px; margin: 0 auto;
 }
 /* Pendant la saisie d'un réglage, on rend l'espace au champ (voir app.js). */
@@ -642,8 +649,10 @@ body.kb-typing .launch-bar { display: none; }
    débriefing défile SOUS elles au lieu de les repousser hors de l'écran. */
 .end-bar {
   position: sticky; bottom: 0; z-index: 5; margin: 0 -16px;
-  background: rgba(10,19,48,.97); border-top: 3px solid var(--lime);
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  /* Même correction que .launch-bar : fond opaque, et pas de double
+     application de la zone sûre — body s'en charge déjà. */
+  background: var(--bg); border-top: 3px solid var(--lime);
+  padding: 12px 16px;
   display: grid; gap: 8px;
 }
 .end-bar .btn { margin: 0; }

@@ -304,8 +304,30 @@
     b.classList.toggle('hidden', unreadChat === 0);
   }
 
+  // Clés des messages déjà affichés : l'historique rejoué à la reconnexion
+  // recoupe forcément ce qui a été reçu en direct juste avant la coupure.
+  const chatVus = new Set();
+  const cleChat = (m) => m.at + '|' + m.from + '|' + m.text;
+
+  // Rejeu à l'arrivée ou au retour. On remplit UNIQUEMENT le fil de la modale :
+  // pas de bulles, pas de sons. Faire surgir vingt bulles et vingt sons d'un
+  // coup à la reconnexion serait pire que le silence qu'on répare.
+  socket.on('chat:history', (liste) => {
+    if (!Array.isArray(liste)) return;
+    for (const m of liste) {
+      const k = cleChat(m);
+      if (chatVus.has(k)) continue;
+      chatVus.add(k);
+      addChatMessage(m.from, m.text);
+    }
+  });
+
   // Chat global (texte libre) : reçu par tous
-  socket.on('chat', ({ from, text }) => {
+  socket.on('chat', (m) => {
+    const { from, text } = m;
+    const k = cleChat(m);
+    if (chatVus.has(k)) return;
+    chatVus.add(k);
     if ($('modal-chat').classList.contains('hidden') && from !== state.name) {
       unreadChat++; updateChatBadge();
     }
@@ -917,6 +939,7 @@
     $('btn-radar').classList.remove('locked');
     $('modal-chat').classList.add('hidden');
     $('chat-messages').innerHTML = '';
+    chatVus.clear(); // sinon un rejeu après REJOUER serait filtré comme déjà vu
     $('players-panel').classList.add('hidden');
     $('modal-confirm').classList.add('hidden');
     unreadChat = 0; updateChatBadge();

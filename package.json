@@ -21,7 +21,8 @@
     "test:rules": "node tests/rules.test.js",
     "test:liveplay": "node tests/liveplay.test.js",
     "test:bearing": "node tests/bearing.test.js",
-    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js"
+    "test:chatresume": "node tests/chatresume.test.js",
+    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/chatresume.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
