@@ -32,6 +32,10 @@ window.GameMap = (function () {
       maxZoom: 20,
       attribution: '&copy; OpenStreetMap &copy; CARTO',
     }).addTo(map);
+    // Dès que le joueur déplace ou zoome lui-même, le recadrage automatique
+    // cesse : rien n'est plus agaçant qu'une carte qui reprend la main.
+    map.on('dragstart', () => { userMoved = true; });
+    map.on('zoomstart', () => { if (!fitting) userMoved = true; });
     return map;
   }
 
@@ -219,6 +223,26 @@ window.GameMap = (function () {
 
   // Le cercle et le voile doivent bouger ENSEMBLE : le voile est le monde troué
   // du disque jouable, si l'un avance sans l'autre le trou déborde du trait.
+  let userMoved = false; // le joueur a pris la main : on ne recadre plus jamais
+  let fitting = false;   // recadrage en cours : zoomstart vient de NOUS, pas de lui
+  function fitZone() {
+    if (!map || !zoneCircle || userMoved) return;
+    try {
+      // invalidateSize d'abord : sans ça on recalcule sur l'ancienne taille.
+      map.invalidateSize();
+      const b = zoneCircle.getBounds();
+      if (!b || !b.isValid()) return;
+      fitting = true;
+      // animate: false rend l'appel synchrone — sinon zoomstart arrive après
+      // qu'on ait baissé le drapeau, et le recadrage se prendrait lui-même
+      // pour un geste du joueur. Un cadrage instantané au lancement est de
+      // toute façon ce qu'on veut.
+      map.fitBounds(b.pad(0.08), { animate: false });
+      fitting = false;
+      hasCentered = true;
+    } catch (_) { fitting = false; }
+  }
+
   function paintZone(center, radius) {
     // 64 points au lieu de 96 : le voile est reprojeté à chaque image pendant
     // le rétrécissement, et l'écart ne se voit pas à cette échelle.
@@ -243,8 +267,14 @@ window.GameMap = (function () {
     if (!zoneCircle) {
       zoneCircle = L.circle(c, { radius: zone.radius, color: '#C6FF00', weight: 4, fill: false, interactive: false }).addTo(map);
       paintZone(zone.center, zone.radius);
-      // Première zone reçue : on cadre la carte dessus pour voir tout le terrain de jeu
-      try { map.fitBounds(zoneCircle.getBounds().pad(0.08)); hasCentered = true; } catch (_) {}
+      // Première zone reçue : on cadre la carte sur tout le terrain de jeu.
+      // Le premier essai tombe souvent AVANT que le conteneur ait sa taille —
+      // Leaflet calcule alors le zoom sur une hauteur nulle et retombe au
+      // niveau mondial, ce qui se voyait au lancement : continents à l'écran
+      // pour une zone de 20 m. On réessaie donc tant que la mise en page n'est
+      // pas posée, et on s'arrête net dès que le joueur touche la carte.
+      fitZone();
+      [120, 400, 1000].forEach((d) => setTimeout(fitZone, d));
     } else {
       zoneCircle.setLatLng(c);
       // Le rétrécissement par paliers est le mécanisme central du jeu : il a un
@@ -300,6 +330,7 @@ window.GameMap = (function () {
     if (!map) return;
     if (radiusAnim) { cancelAnimationFrame(radiusAnim); radiusAnim = null; }
     shownRadius = null;
+    userMoved = false; // nouvelle partie : le recadrage automatique reprend
     if (selfMarker) { map.removeLayer(selfMarker); selfMarker = null; }
     selfCls = null; coneEl = null; headingAngle = null;
     if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }

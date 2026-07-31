@@ -180,14 +180,18 @@
     route(s);
   });
 
-  socket.on('zone:alert', ({ deadline }) => {
+  // Ouvre l'alerte hors-zone. Idempotent : appelée aussi bien par l'événement
+  // que par l'état à chaque tick, elle ne rejoue son et vibration qu'une fois.
+  function openZoneAlert(deadline) {
+    if (state.alertDeadline) { state.alertDeadline = deadline; return; }
     state.alertDeadline = deadline;
     $('zone-alert').classList.remove('hidden');
     $('zone-frame').classList.remove('hidden');
     updateZoneBearing(true);
     Sensors.startAlarm();
     Sensors.vibrate([300, 150, 300, 150, 600]);
-  });
+  }
+  socket.on('zone:alert', ({ deadline }) => openZoneAlert(deadline));
   socket.on('zone:alertCancelled', () => clearZoneAlert());
 
   // La zone va se fermer (~1 min) et je ne suis pas dans la prochaine zone
@@ -242,15 +246,16 @@
   }
   $('ca-ok').onclick = hideCaptureTakeover;
 
-  socket.on('hunter:flash', ({ name, lat, lng }) => {
-    // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
-    // Mais s'il est loin de la vue actuelle, il reste invisible sans recadrage :
-    // le joueur voyait le toast sans jamais voir le point apparaître.
-    // Un caché qui sort est une occasion de capture, et elle est brève. Elle
-    // avait le souffle de transition générique et 120 ms de buzz : ratable en
-    // courant. Son propre, et un motif long en trois temps — sur iPhone, où
-    // l'API Vibration n'existe pas, c'est le nombre de secousses qui porte,
-    // pas leur durée.
+  // Une sortie de zone arrivait au chasseur par un ÉVÉNEMENT unique. Perdu, il
+  // voyait le marqueur apparaître sans un bruit — ou rien du tout. L'état porte
+  // déjà ces révélations (kind: 'flash') : les deux canaux passent maintenant
+  // par ici, et un verrou de 6 s — la durée du flash — empêche la double
+  // annonce sans dépendre d'une clé partagée entre eux.
+  const derniereSortie = new Map();
+  function annonceSortie(name, lat, lng) {
+    const now = Date.now();
+    if (now - (derniereSortie.get(name) || 0) < 6000) return;
+    derniereSortie.set(name, now);
     Sensors.sfx('breach');
     Sensors.vibrate([260, 110, 260, 110, 520]);
     toast('SORTIE DE ZONE : ' + name, 'danger', 4000);
@@ -259,7 +264,11 @@
       if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
       GameMap.focus(pts);
     }
-  });
+  }
+
+  // Canal rapide. Le recadrage compte : un marqueur loin de la vue courante
+  // reste invisible, et le joueur voyait le toast sans jamais voir le point.
+  socket.on('hunter:flash', ({ name, lat, lng }) => annonceSortie(name, lat, lng));
 
   socket.on('radar:result', ({ name, lat, lng }) => {
     // Le marqueur exact est affiché par l'état serveur (reveals) — pas de doublon ici.
@@ -559,6 +568,20 @@
       state.lastRadius = s.zone.radius;
       GameMap.setZone(s.zone);
       $('hud-shrink').classList.toggle('hidden', !s.zone.nextShrinkAt);
+    }
+
+    // L'ÉTAT FAIT FOI pour l'alerte hors-zone. L'événement `zone:alert` reste
+    // le canal rapide, mais s'il se perd le compte à rebours courait quand même
+    // et le joueur était converti sans avoir rien vu. Ici, l'alerte se rattrape
+    // au tick suivant, comme tout le reste du jeu.
+    if (s.you && s.you.outOfZoneUntil) openZoneAlert(s.you.outOfZoneUntil);
+    else if (state.alertDeadline) clearZoneAlert();
+
+    // Sorties de zone que l'événement n'a pas apportées (chasseur).
+    if (role === 'hunter') {
+      for (const r of s.reveals || []) {
+        if (r.kind === 'flash') annonceSortie(r.name, r.lat, r.lng);
+      }
     }
 
     // Position perso sur la carte

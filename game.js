@@ -564,6 +564,15 @@ class Room {
         radarUsesLeft: me.radarUsesLeft,
         radarMax: this.config.radarUses,
         pos: me.pos,
+        // Échéance de conversion si le joueur est hors zone. L'alerte n'était
+        // envoyée QU'UNE FOIS, sur la transition dedans -> dehors. Ce message
+        // unique perdu — socket absent une fraction de seconde, reconnexion en
+        // cours — le compte à rebours courait quand même et le joueur était
+        // converti sans avoir rien vu. Portée par l'état, l'alerte se rattrape
+        // à chaque tick, comme tout le reste.
+        outOfZoneUntil: me.outOfZoneSince
+          ? me.outOfZoneSince + this.config.graceSeconds * 1000
+          : null,
       },
       counts: this.counts(),
     };
