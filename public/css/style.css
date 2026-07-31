@@ -334,6 +334,30 @@ input:focus { border-color: var(--lime); background: rgba(0,0,0,.5); }
 body.kb-typing .launch-bar { display: none; }
 .launch-bar .check-line { margin-top: 0; }
 .launch-bar .btn { margin: 0; }
+/* État des appareils : une ligne par opérateur, quatre pastilles.
+   Lecture en deux secondes — c'est le dernier écran que l'hôte regarde avant
+   d'envoyer onze personnes courir dehors. */
+.ready-panel { background: rgba(0,0,0,.28); border: 1px solid var(--line); margin-top: 10px; padding: 9px 10px 10px; }
+.rp-head { display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; font-weight: 900; letter-spacing: .14em; color: var(--ink-dim); }
+.rp-count { font-variant-numeric: tabular-nums; padding: 2px 7px; background: var(--elec); color: var(--white); }
+.rp-count.ko { background: var(--red); color: var(--bg); }
+.rp-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; max-height: 132px; overflow-y: auto; }
+.rp-list li { display: flex; align-items: center; gap: 8px; }
+.rp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 800; color: var(--ink); }
+.rp-dots { display: flex; gap: 3px; flex: none; }
+/* Chaque pastille porte sa lettre : la couleur seule ne dit pas de quelle
+   autorisation il s'agit, et un joueur daltonien doit pouvoir lire la ligne. */
+/* 11 px, pas 10 : c'est le plancher de lisibilité que cette feuille se fixe
+   elle-même pour tout libellé fonctionnel. Cet écran se lit en extérieur. */
+.rp-dot { width: 25px; height: 20px; display: grid; place-items: center;
+  font-size: 11px; font-weight: 900; letter-spacing: .01em;
+  background: rgba(255,255,255,.10); color: var(--ink-dim); }
+.rp-dot.on { background: var(--lime); color: var(--bg); }
+.rp-dot.req-off { background: var(--red); color: var(--bg); }
+.rp-legend { font-size: 11px; font-weight: 800; letter-spacing: .04em; color: var(--ink-dim); margin-top: 8px; line-height: 1.4; }
+
 .lb-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
 .lb-meta { display: flex; flex-direction: column; gap: 1px; flex: none; }
 .lb-code { font-family: var(--disp); font-size: 22px; font-weight: 900; letter-spacing: .1em; color: var(--white); }

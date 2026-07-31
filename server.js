@@ -357,6 +357,14 @@ io.on('connection', (socket) => {
   });
 
   // --- Position GPS ---
+  // --- État des autorisations de l'appareil, rapporté par chaque client ---
+  socket.on('ready', (patch) => {
+    const ctx = ctxOf(socket);
+    if (!ctx) return;
+    ctx.room.setReady(ctx.playerId, patch);
+    emitStateToRoom(ctx.room);
+  });
+
   socket.on('pos', (pos) => {
     const ctx = ctxOf(socket);
     if (!ctx) return;

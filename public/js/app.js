@@ -112,6 +112,7 @@
         state.joined = true;
         if (firstJoin) startGeo();
         else toast('Reconnecté.', '', 2000);
+        renvoyerEtat();
       } else {
         // Reprise impossible par l'identifiant de session. On ne laisse SURTOUT
         // pas le joueur sur un écran figé : retour à l'accueil avec le code et le
@@ -404,6 +405,7 @@
       updateZonePreview(s.config);
       fillConfig(s.config);
       renderManual(s);
+      renderReady(s);
       // mode d'attribution
       state.roleMode = s.roleMode;
       const rnd = s.roleMode === 'random';
@@ -521,6 +523,7 @@
     // Si l'écran peut se verrouiller, le GPS s'arrête et la position se fige :
     // mieux vaut prévenir le joueur une fois au début.
     Sensors.requestWakeLock().then((ok) => {
+      rapporterEtat({ wake: !!ok });
       if (!ok) toast('⚠ L’écran peut se verrouiller : garde l’app ouverte, sinon ta position se fige.', 'danger', 8000);
     });
     Sensors.ensureAudio();
@@ -756,6 +759,7 @@
       GESTES.forEach((g) => document.removeEventListener(g, headingGo));
       headingGo = null;
       setHeadingStatus('AUTORISÉ');
+      rapporterEtat({ heading: true });
       if (state.inGame) startHeadingTracking();
     };
     GESTES.forEach((g) => document.addEventListener(g, headingGo));
@@ -777,6 +781,7 @@
   function headingUnavailable() {
     GameMap.setHeading(null);
     setHeadingStatus('CAPTEUR MUET OU ABSENT', 'ko');
+    rapporterEtat({ heading: false });
     if (headingWarned) return;
     headingWarned = true;
     toast('Boussole indisponible sur ce téléphone — pas de cône d’orientation.', '', 6000);
@@ -1025,6 +1030,7 @@
   }
   function onGeoError(err, code) {
     if (code === 1) geoState.denied = true;
+    rapporterEtat({ gps: false });
     updateGpsBadge();
     updateLaunchState();
     updateZonePreview(state.last && state.last.config);
@@ -1064,10 +1070,28 @@
     return !!geoState.lastFixAt && (Date.now() - geoState.lastFixAt) <= FIX_STALE_MS;
   }
 
+  // État des autorisations de CET appareil, rapporté au serveur. Émis
+  // uniquement au changement : c'est une information rare, pas un flux.
+  const monEtat = { gps: false, wake: false, audio: false, heading: false };
+  function rapporterEtat(patch) {
+    let change = false;
+    for (const k in patch) {
+      if (monEtat[k] !== patch[k]) { monEtat[k] = patch[k]; change = true; }
+    }
+    if (change && state.joined) socket.emit('ready', monEtat);
+  }
+  // À l'arrivée et à chaque reconnexion : le serveur repart d'un état vierge
+  // pour ce joueur, et un fix GPS obtenu AVANT la connexion n'aurait jamais
+  // été rapporté sans ça.
+  function renvoyerEtat() {
+    if (state.joined) socket.emit('ready', monEtat);
+  }
+
   function onPos(pos) {
     state.selfPos = pos;
     geoState.lastFixAt = Date.now();
     geoState.denied = false;
+    rapporterEtat({ gps: true });
     updateGpsBadge();
     updateLaunchState();
     // Affichage local même si imprécis
@@ -1132,6 +1156,7 @@
       if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
+      renvoyerEtat();
     }));
   }
   function doJoin() {
@@ -1146,6 +1171,7 @@
       if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
+      renvoyerEtat();
       if (res.reclaimed) toast('Place reprise — ton rôle et ton code QR sont conservés.', '', 5000);
     }));
   }
@@ -1264,6 +1290,57 @@
     return roster.some((p) => p.role === 'hunter') && roster.some((p) => p.role === 'hider');
   }
 
+  // Une ligne par opérateur, quatre pastilles lettrées. La lettre compte : la
+  // couleur seule ne dit pas DE QUELLE autorisation il s'agit, et cet écran se
+  // lit en deux secondes avant d'envoyer des gens courir dehors.
+  const AUTORISATIONS = [
+    { cle: 'gps', lettre: 'GPS', requis: true },
+    { cle: 'wake', lettre: 'ÉCR', requis: false },
+    { cle: 'audio', lettre: 'SON', requis: false },
+    { cle: 'heading', lettre: 'CAP', requis: false },
+  ];
+
+  function renderReady(s) {
+    const panel = $('ready-panel');
+    if (!panel) return;
+    const rs = (s && s.roster) || [];
+    panel.classList.toggle('hidden', !s || !s.isHost || rs.length === 0);
+    if (!s || !s.isHost) return;
+    const ul = $('rp-list');
+    ul.innerHTML = '';
+    let prets = 0;
+    for (const p of rs) {
+      // La pastille GPS montre ce que le serveur CONSTATE (une position reçue),
+      // pas ce que l'appareil déclare : c'est ce constat-là qui bloque.
+      const r = Object.assign({}, p.ready, { gps: !!p.hasPos });
+      if (r.gps) prets++;
+      const li = document.createElement('li');
+      const nom = document.createElement('span');
+      nom.className = 'rp-name';
+      nom.textContent = p.name + (p.connected ? '' : ' (hors ligne)');
+      const dots = document.createElement('span');
+      dots.className = 'rp-dots';
+      for (const a of AUTORISATIONS) {
+        const d = document.createElement('span');
+        const ok = !!r[a.cle];
+        d.className = 'rp-dot' + (ok ? ' on' : (a.requis ? ' req-off' : ''));
+        d.textContent = a.lettre;
+        d.title = a.lettre + (ok ? ' : autorisé' : a.requis ? ' : MANQUANT — bloque le lancement' : ' : indisponible');
+        dots.appendChild(d);
+      }
+      li.appendChild(nom); li.appendChild(dots);
+      ul.appendChild(li);
+    }
+    const c = $('rp-count');
+    c.textContent = prets + '/' + rs.length;
+    c.className = 'rp-count' + (prets === rs.length ? '' : ' ko');
+  }
+
+  // Noms des joueurs sans GPS, pour nommer le blocage au lieu de le subir.
+  function sansGps(roster) {
+    return roster.filter((p) => p.connected && !p.hasPos).map((p) => p.name);
+  }
+
   function updateLaunchState() {
     const btn = $('btn-launch');
     const block = $('launch-block');
@@ -1286,6 +1363,10 @@
     // l'hôte, debout au milieu du groupe, appuyait sur un bouton vert et
     // récupérait une erreur en 13 px. Un blocage ne se découvre pas après coup.
     else if (!hasBothRoles(rs)) why = 'IL FAUT AU MOINS 1 CHASSEUR ET 1 CACHÉ';
+    // Le serveur refuse aussi ce cas (game.js). On le dit AVANT le tap, et on
+    // nomme les joueurs concernés : « quelqu'un n'a pas le GPS » n'aide pas
+    // l'hôte, « GPS MANQUANT : LOU, RAF » lui dit à qui parler.
+    else if (sansGps(rs).length) why = 'GPS MANQUANT : ' + sansGps(rs).join(', ').toUpperCase();
     else if (!validateConfig()) why = 'RÉGLAGES INCOHÉRENTS — VOIR RÉGLAGES AVANCÉS';
     else if (!chk.checked) why = 'COCHE LA VÉRIFICATION DE SÉCURITÉ POUR LANCER';
 
@@ -1629,6 +1710,7 @@
   // On déverrouille le contexte au premier toucher, sinon les alertes seraient muettes.
   document.addEventListener('pointerdown', function unlock() {
     Sensors.ensureAudio();
+    rapporterEtat({ audio: true });
     document.removeEventListener('pointerdown', unlock);
   }, { once: true });
 

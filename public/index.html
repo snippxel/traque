@@ -182,6 +182,18 @@
         <input id="chk-safety" type="checkbox" />
         <span>J’ai vérifié que la zone est sûre — pas de routes passantes, plans d’eau, etc.</span>
       </label>
+      <!-- État des appareils. Le GPS n'était vérifié que chez l'hôte : un
+           invité ayant refusé la géolocalisation rejoignait et restait
+           invisible toute la partie. Ce tableau rend l'état de chacun visible
+           AVANT le lancement, et le serveur refuse de démarrer sans GPS. -->
+      <div id="ready-panel" class="ready-panel hidden">
+        <div class="rp-head">
+          <span>ÉTAT DES APPAREILS</span>
+          <span id="rp-count" class="rp-count">0/0</span>
+        </div>
+        <ul id="rp-list" class="rp-list"></ul>
+        <div class="rp-legend">GPS obligatoire · écran, son et boussole recommandés</div>
+      </div>
       <div class="lb-row">
         <div class="lb-meta">
           <span class="lb-code" id="lb-code">-----</span>

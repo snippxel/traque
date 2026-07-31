@@ -123,6 +123,11 @@ class Room {
       startRole: null,
       qrToken: randomToken(24),
       pos: null, // {lat,lng,accuracy,time}
+      // État des autorisations de SON appareil, rapporté par le client.
+      // La position n'était verifiée que chez l'hôte : un invité ayant refusé
+      // la géolocalisation pouvait rejoindre et rester invisible toute la
+      // partie, sans que personne ne le sache avant qu'il soit trop tard.
+      ready: { gps: false, wake: false, audio: false, heading: false },
       connected: true,
       disconnectAt: null,
       captures: 0,
@@ -169,6 +174,28 @@ class Room {
   }
 
   // --- Attribution des rôles (lobby) --------------------------------------
+  setReady(playerId, patch) {
+    const p = this.players.get(playerId);
+    if (!p || !patch || typeof patch !== 'object') return;
+    for (const k of ['gps', 'wake', 'audio', 'heading']) {
+      if (typeof patch[k] === 'boolean') p.ready[k] = patch[k];
+    }
+  }
+
+  // Le GPS est la SEULE autorisation bloquante. Sans lui un joueur ne peut ni
+  // être révélé, ni être capturé, ni sortir de zone : sa présence casse la
+  // partie pour tout le monde. Le réveil d'écran, le son et la boussole
+  // dégradent l'expérience sans la rendre injouable — les signaler suffit,
+  // les rendre bloquants empêcherait de jouer sur des navigateurs entiers.
+  //
+  // Le critère est la POSITION REÇUE, pas le drapeau annoncé par le client.
+  // Une autorisation déclarée ne prouve rien : le serveur bloque sur ce qu'il
+  // constate lui-même, conformément au principe « la règle vit sur le serveur ».
+  // Le drapeau client ne sert qu'à renseigner le tableau de l'hôte.
+  playersWithoutGps() {
+    return [...this.players.values()].filter((p) => p.connected && !p.pos);
+  }
+
   addChat(payload) {
     this.chat.push(payload);
     if (this.chat.length > CHAT_HISTORY_MAX) this.chat.splice(0, this.chat.length - CHAT_HISTORY_MAX);
@@ -225,6 +252,11 @@ class Room {
     }
     if (this.players.size < 2) {
       return { ok: false, error: 'Il faut au moins 2 joueurs.' };
+    }
+    const sansGps = this.playersWithoutGps();
+    if (sansGps.length) {
+      const noms = sansGps.map((p) => p.name).join(', ');
+      return { ok: false, error: 'GPS non autorisé chez : ' + noms };
     }
     const hunters = [...this.players.values()].filter((p) => p.role === 'hunter');
     const hiders = [...this.players.values()].filter((p) => p.role === 'hider');
@@ -545,6 +577,8 @@ class Room {
         role: p.role,
         connected: p.connected,
         isHost: p.id === this.hostId,
+        ready: p.ready,
+        hasPos: !!p.pos, // ce que le serveur CONSTATE, seul critère bloquant
       }));
       return base;
     }
