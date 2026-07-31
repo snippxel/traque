@@ -702,37 +702,54 @@
   // premier appui APRÈS l'entrée en partie : demander une permission sur
   // l'écran d'accueil, avant que le joueur ait vu la moindre carte, ne veut
   // rien dire pour lui. Sur Android il n'y a pas de fenêtre du tout.
+  // « Pas de cône » pouvait signifier quatre choses — geste jamais capté,
+  // permission refusée, appareil sans magnétomètre, ou capteur muet — et rien
+  // ne les distinguait à l'écran. Cet état est affiché dans le panneau
+  // ÉQUIPES : c'est ce qui rend le problème diagnosticable au lieu de devinable.
+  const GESTES = ['pointerdown', 'touchend', 'click'];
   let headingOn = false, headingGo = null, headingWarned = false;
+
+  function setHeadingStatus(txt, cls) {
+    const el = $('pp-heading');
+    if (!el) return;
+    el.textContent = 'CAP : ' + txt;
+    el.className = 'pp-heading' + (cls ? ' ' + cls : '');
+  }
+
   function armHeading() {
     if (headingGo) return;
-    // PAS `once` : si la permission est refusée ou si le geste n'est pas
-    // reconnu, on retente au prochain appui. La version précédente n'essayait
-    // qu'une seule fois, donc un premier échec condamnait le cône pour toute
-    // la partie sans que rien ne le dise.
+    setHeadingStatus('EN ATTENTE D’UN APPUI');
+    // PAS `once` : un refus, ou un geste qu'iOS ne reconnaît pas comme
+    // intentionnel, condamnait le cône pour toute la partie. On retente à
+    // chaque geste. Et on écoute trois types : sur iOS, `pointerdown` seul
+    // n'est pas toujours accepté comme activation utilisateur.
     headingGo = async () => {
       if (headingOn) return;
       const ok = await Sensors.requestHeadingPermission();
-      if (!ok) return;
+      if (!ok) { setHeadingStatus('AUTORISATION REFUSÉE', 'ko'); return; }
       headingOn = true;
-      document.removeEventListener('pointerdown', headingGo);
+      GESTES.forEach((g) => document.removeEventListener(g, headingGo));
+      setHeadingStatus('AUTORISÉ — EN ATTENTE DU CAPTEUR');
       Sensors.startHeading(
-        (h) => GameMap.setHeading(h),
+        (h) => { GameMap.setHeading(h); setHeadingStatus('ACTIF · ' + Math.round(h) + '°', 'ok'); },
         (st) => { if (st === 'none') headingUnavailable(); }
       );
     };
-    document.addEventListener('pointerdown', headingGo);
+    GESTES.forEach((g) => document.addEventListener(g, headingGo));
   }
-  // Un cône absent doit s'expliquer. Sans ce mot, l'appareil sans boussole et
-  // l'appareil qui marche étaient indiscernables : rien ne s'affichait.
+
   function headingUnavailable() {
     GameMap.setHeading(null);
+    setHeadingStatus('CAPTEUR MUET OU ABSENT', 'ko');
     if (headingWarned) return;
     headingWarned = true;
     toast('Boussole indisponible sur ce téléphone — pas de cône d’orientation.', '', 6000);
   }
+
   function disarmHeading() {
-    if (headingGo) document.removeEventListener('pointerdown', headingGo);
+    if (headingGo) GESTES.forEach((g) => document.removeEventListener(g, headingGo));
     headingGo = null; headingOn = false; headingWarned = false;
+    setHeadingStatus('—');
     Sensors.stopHeading();
   }
 
@@ -753,7 +770,7 @@
     kickoffTimers.push(setTimeout(() => {
       el.classList.add('out');
       kickoffTimers.push(setTimeout(() => el.classList.add('hidden'), 300));
-    }, 2000));
+    }, 2600));
   }
   function hideKickoff() {
     kickoffTimers.forEach(clearTimeout); kickoffTimers = [];
@@ -786,8 +803,8 @@
         // début : une secousse qui ne correspond à rien de visible se ressent
         // comme une notification, pas comme un événement de jeu. Même principe
         // que la capture, dont le buzz est décalé pour tomber sur la basse.
-        // [attente, frappe...] — 240 kicker · 380 titre · 620 barre · 760 consigne
-        Sensors.vibrate([0, 240, 45, 95, 70, 170, 55, 85, 260]);
+        // [attente, frappe...] — 300 surtitre · 460 titre · 720 barre · 880 consigne
+        Sensors.vibrate([0, 300, 45, 115, 70, 190, 55, 105, 280]);
         Sensors.sfx('kickoff');
         showKickoff(state.role);
       }

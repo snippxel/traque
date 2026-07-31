@@ -271,6 +271,9 @@
     <div id="players-panel" class="players-panel hidden">
       <div class="pp-head">OPÉRATEURS <button id="pp-close" class="pp-close" aria-label="Fermer la liste des opérateurs">✕</button></div>
       <ul id="pp-list" class="pp-list"></ul>
+      <!-- État de la boussole. Sans ça, « pas de cône » pouvait vouloir dire
+           quatre choses différentes et rien ne les distinguait à l'écran. -->
+      <div id="pp-heading" class="pp-heading">CAP : —</div>
     </div>
 
     <!-- Chat rapide -->
