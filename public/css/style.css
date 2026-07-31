@@ -362,8 +362,9 @@ body.kb-typing .launch-bar { display: none; }
    du jeu. Encre sombre sur les deux aplats, le blanc n'y passe pas. */
 .hud-cell:first-child:has(.hud-v.hunter) { background: var(--mag); }
 .hud-cell:first-child:has(.hud-v.hider)  { background: var(--lime); }
+/* Idem : à 78 % sur le magenta, « RÔLE » tombait à 4,17:1. */
 .hud-cell:first-child:has(.hud-v.hunter) .hud-k,
-.hud-cell:first-child:has(.hud-v.hider) .hud-k { color: rgba(10,19,48,.78); }
+.hud-cell:first-child:has(.hud-v.hider) .hud-k { color: var(--bg); }
 .hud-v.hunter, .hud-v.hider { color: var(--bg); }
 
 .status-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 10px; }
@@ -503,7 +504,9 @@ body.kb-typing .launch-bar { display: none; }
   clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%);
 }
 .za-title { font-family: var(--disp); font-weight: 900; font-size: 21px; letter-spacing: -0.04em; line-height: 1; }
-.za-sub { font-size: 11px; font-weight: 900; letter-spacing: .08em; margin-top: 4px; color: rgba(10,19,48,.82); }
+/* Encre opaque, pas à 82 % : sur le rouge, l'alpha ramenait ce libellé à
+   4,36:1, sous le seuil AA pour du 11 px. */
+.za-sub { font-size: 11px; font-weight: 900; letter-spacing: .08em; margin-top: 4px; color: var(--bg); }
 .za-nav { display: flex; align-items: center; gap: 8px; }
 /* Cap vers le centre de la zone, nord en haut — donc lisible dans le même
    repère que la carte, sans demander l'accès à la boussole. */

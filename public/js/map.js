@@ -158,6 +158,13 @@ window.GameMap = (function () {
   // « va là ». Le bleu est la couleur de la structure et de la zone dans la loi
   // de couleur ; c'est celle qui appartient à ce cercle.
   //
+  // EXCEPTION ASSUMÉE : le cercle jouable reste lime alors que la loi écrite dit
+  // « bleu = zone ». Ici le lime ne désigne pas la zone en tant que structure,
+  // il désigne « sûr » — le même sens que partout ailleurs pour le caché — et le
+  // briefing du salon l'enseigne déjà en toutes lettres (« reste dans le cercle
+  // vert »). C'est la seule divergence avec PRODUCT.md ; elle est délibérée.
+  // À trancher un jour dans un sens ou dans l'autre, pas à laisser dériver.
+  //
   // La version précédente peignait en rouge la bande entre les deux cercles.
   // C'était faux : cette bande est parfaitement jouable sur le moment, le rouge
   // la faisait passer pour interdite. Le décompte du bandeau dit déjà quand
