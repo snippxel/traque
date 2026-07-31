@@ -720,6 +720,20 @@ body.kb-typing .launch-bar { display: none; }
 .mk { position: relative; }
 .mk-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--white); }
 
+/* Cône de visée : dans quel sens le joueur est tourné. Volontairement LARGE
+   (~64°) et en aplat franc, sans dégradé : le magnétomètre est imprécis de
+   20 à 30° en ville, un faisceau fin prétendrait à une exactitude qui n'existe
+   pas. La carte, elle, reste nord en haut — seul ce cône tourne. */
+.mk-cone {
+  position: absolute; left: 50%; top: 50%; width: 62px; height: 62px;
+  margin: -31px 0 0 -31px; pointer-events: none;
+  background: rgba(198,255,0,.26);
+  clip-path: polygon(50% 50%, 22% 0, 78% 0);
+  transform-origin: 50% 50%;
+  transition: transform .25s linear;
+}
+.mk-self.hunter .mk-cone { background: rgba(255,46,136,.26); }
+
 /* CACHÉ — disque plein */
 .mk-self .mk-dot { background: var(--lime); }
 .mk-team .mk-dot { background: var(--lime); opacity: .9; }

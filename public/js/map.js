@@ -35,19 +35,63 @@ window.GameMap = (function () {
     return map;
   }
 
+  // Icône de soi : le cône de visée est DANS l'icône, derrière la pastille, pour
+  // qu'il suive le marqueur sans calcul de position séparé.
+  function selfIcon(cls) {
+    return L.divIcon({
+      className: 'mk ' + cls,
+      html: '<div class="mk-cone"></div><div class="mk-dot"></div><div class="mk-label">MOI</div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+  }
+
+  let selfCls = null;      // dernière classe posée : on ne reconstruit l'icône que si le rôle change
+  let coneEl = null;       // élément du cône, retrouvé une fois puis conservé
+  let headingAngle = null; // cap cumulé, non borné — même raison que la flèche hors-zone
+
   function setSelf(pos, role) {
     if (!map || !pos) return;
     const cls = 'mk-self ' + role;
     if (!selfMarker) {
-      selfMarker = L.marker([pos.lat, pos.lng], { icon: divIcon(cls, 'MOI'), zIndexOffset: 1000 }).addTo(map);
+      selfMarker = L.marker([pos.lat, pos.lng], { icon: selfIcon(cls), zIndexOffset: 1000 }).addTo(map);
+      selfCls = cls; coneEl = null;
       accuracyCircle = L.circle([pos.lat, pos.lng], { radius: pos.accuracy || 15, color: '#C6FF00', weight: 1, opacity: 0.3, fillColor: '#C6FF00', fillOpacity: 0.06 }).addTo(map);
     } else {
       selfMarker.setLatLng([pos.lat, pos.lng]);
-      selfMarker.setIcon(divIcon(cls, 'MOI'));
+      // setIcon reconstruit le DOM de l'icône : le faire à chaque point GPS
+      // détruisait le cône et sa rotation deux fois par seconde.
+      if (cls !== selfCls) { selfMarker.setIcon(selfIcon(cls)); selfCls = cls; coneEl = null; }
       accuracyCircle.setLatLng([pos.lat, pos.lng]);
       accuracyCircle.setRadius(pos.accuracy || 15);
     }
     if (!hasCentered) { map.setView([pos.lat, pos.lng], 17); hasCentered = true; }
+  }
+
+  // Oriente le cône de visée. La carte reste nord en haut : seul le marqueur
+  // tourne, sinon le cercle de zone et la flèche hors-zone perdraient leur
+  // repère. `null` masque le cône (capteur absent ou permission refusée).
+  function setHeading(deg) {
+    if (!selfMarker) return;
+    if (!coneEl) {
+      const root = selfMarker.getElement();
+      coneEl = root && root.querySelector('.mk-cone');
+      if (!coneEl) return;
+    }
+    if (deg === null || deg === undefined || Number.isNaN(deg)) {
+      coneEl.style.display = 'none';
+      return;
+    }
+    coneEl.style.display = '';
+    // Même piège que la flèche de cap : rotate() s'interpole numériquement,
+    // donc on n'ajoute que le plus court delta pour ne pas faire un tour
+    // complet en passant le nord.
+    if (headingAngle === null) headingAngle = deg;
+    else {
+      const d = ((deg - headingAngle) % 360 + 540) % 360 - 180;
+      headingAngle += d;
+    }
+    coneEl.style.transform = 'rotate(' + headingAngle.toFixed(1) + 'deg)';
   }
 
   function recenter(pos) { if (map && pos) map.setView([pos.lat, pos.lng], map.getZoom()); }
@@ -257,6 +301,7 @@ window.GameMap = (function () {
     if (radiusAnim) { cancelAnimationFrame(radiusAnim); radiusAnim = null; }
     shownRadius = null;
     if (selfMarker) { map.removeLayer(selfMarker); selfMarker = null; }
+    selfCls = null; coneEl = null; headingAngle = null;
     if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
     if (zoneCircle) { map.removeLayer(zoneCircle); zoneCircle = null; }
     if (nextZoneCircle) { map.removeLayer(nextZoneCircle); nextZoneCircle = null; }
@@ -299,7 +344,7 @@ window.GameMap = (function () {
   function previewInvalidate() { if (pMap) setTimeout(() => pMap.invalidateSize(), 60); }
 
   return {
-    init, setSelf, recenter, focus, setTeammates, setSignals, clearSignals,
+    init, setSelf, setHeading, recenter, focus, setTeammates, setSignals, clearSignals,
     setReveals, setSpotted, addDown, clearDowns, pulse, setZone, bearing, reset, invalidate,
     previewUpdate, previewInvalidate,
   };

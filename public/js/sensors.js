@@ -47,9 +47,62 @@ window.Sensors = (function () {
     });
   }
 
-  // La boussole a été retirée du jeu : la direction de la zone se lit
-  // directement sur la carte (cercle + position). On ne demande donc plus la
-  // permission d'orientation à iOS, et on n'écoute plus deviceorientation.
+  // -------------------- Orientation (cap du téléphone) --------------------
+  // La boussole qui POINTAIT LA ZONE a été retirée : cette direction se lit sur
+  // la carte. Ce qui suit répond à un autre besoin — dire au joueur dans quel
+  // sens il est tourné, pour qu'il puisse relier une carte nord en haut à ce
+  // qu'il a devant les yeux. La carte, elle, ne pivote jamais.
+  let headingCb = null, headingHandler = null, headingSmoothed = null;
+
+  function headingFromEvent(e) {
+    // iOS expose directement un cap vrai nord, déjà corrigé de la déclinaison.
+    if (typeof e.webkitCompassHeading === 'number' && !Number.isNaN(e.webkitCompassHeading)) {
+      return e.webkitCompassHeading;
+    }
+    // Android : alpha tourne dans l'autre sens. Sans `absolute`, la valeur est
+    // relative à une origine arbitraire — inutilisable, on la jette.
+    if (e.absolute && typeof e.alpha === 'number' && !Number.isNaN(e.alpha)) {
+      return (360 - e.alpha) % 360;
+    }
+    return null;
+  }
+
+  // iOS 13+ exige un appel depuis un geste utilisateur. Android n'a rien à
+  // demander : on renvoie true pour que l'appelant n'ait pas à distinguer.
+  async function requestHeadingPermission() {
+    const D = window.DeviceOrientationEvent;
+    if (!D) return false;
+    if (typeof D.requestPermission !== 'function') return true;
+    try { return (await D.requestPermission()) === 'granted'; } catch (_) { return false; }
+  }
+
+  function startHeading(cb) {
+    stopHeading();
+    headingCb = cb;
+    headingHandler = (e) => {
+      const h = headingFromEvent(e);
+      if (h === null) return;
+      // Lissage circulaire. Le magnétomètre saute de 20 à 30° près d'une
+      // voiture ou d'un portail ; un cône qui tremble est pire qu'un cône
+      // absent, il donne l'illusion d'une précision qui n'existe pas.
+      if (headingSmoothed === null) headingSmoothed = h;
+      else {
+        const d = ((h - headingSmoothed) % 360 + 540) % 360 - 180;
+        headingSmoothed = (headingSmoothed + d * 0.18 + 360) % 360;
+      }
+      headingCb(headingSmoothed);
+    };
+    window.addEventListener('deviceorientationabsolute', headingHandler, true);
+    window.addEventListener('deviceorientation', headingHandler, true);
+  }
+
+  function stopHeading() {
+    if (headingHandler) {
+      window.removeEventListener('deviceorientationabsolute', headingHandler, true);
+      window.removeEventListener('deviceorientation', headingHandler, true);
+    }
+    headingHandler = null; headingCb = null; headingSmoothed = null;
+  }
 
   // -------------------- Wake Lock --------------------
   let wakeLock = null;
@@ -218,6 +271,7 @@ window.Sensors = (function () {
 
   return {
     watchPosition, stopWatch, getOnce,
+    requestHeadingPermission, startHeading, stopHeading,
     requestWakeLock, releaseWakeLock, initWakeLockAutoReacquire,
     vibrate, ensureAudio, startAlarm, stopAlarm, ping, beep, sfx,
   };

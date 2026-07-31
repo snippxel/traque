@@ -495,6 +495,7 @@
     show('screen-game');
     GameMap.init();
     GameMap.invalidate();
+    armHeading();
     // Si l'écran peut se verrouiller, le GPS s'arrête et la position se fige :
     // mieux vaut prévenir le joueur une fois au début.
     Sensors.requestWakeLock().then((ok) => {
@@ -696,6 +697,28 @@
     const toEdge = Math.round(haversine(p, z.center) - z.radius);
     dist.textContent = toEdge > 0 ? toEdge + ' M' : 'ZONE ATTEINTE';
   }
+  // Cap du téléphone : oriente le cône de visée du marqueur « MOI ».
+  // iOS 13+ exige que requestPermission() parte d'un geste. On l'arme donc au
+  // premier appui APRÈS l'entrée en partie : demander une permission sur
+  // l'écran d'accueil, avant que le joueur ait vu la moindre carte, ne veut
+  // rien dire pour lui. Sur Android il n'y a pas de fenêtre du tout.
+  let headingArmed = false;
+  function armHeading() {
+    if (headingArmed) return;
+    headingArmed = true;
+    const go = async () => {
+      document.removeEventListener('pointerdown', go);
+      const ok = await Sensors.requestHeadingPermission();
+      if (!ok) { GameMap.setHeading(null); return; }
+      Sensors.startHeading((h) => GameMap.setHeading(h));
+    };
+    document.addEventListener('pointerdown', go, { once: true });
+  }
+  function disarmHeading() {
+    headingArmed = false;
+    Sensors.stopHeading();
+  }
+
   // Ouverture de la chasse. Le son et la vibration étaient déjà calés ; il
   // manquait l'image. ~1,46 s au total, contre ~2 s pour la capture : ce n'est
   // pas la conclusion de la partie, c'est son coup d'envoi.
@@ -817,6 +840,7 @@
   function teardownGame() {
     state.inGame = false;
     hideKickoff();
+    disarmHeading();
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     Sensors.stopAlarm();
     Sensors.releaseWakeLock();
