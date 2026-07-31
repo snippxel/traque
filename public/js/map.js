@@ -143,15 +143,41 @@ window.GameMap = (function () {
     return reverse ? pts.reverse() : pts;
   }
 
-  // Deux cercles concentriques ne disent pas grand-chose. Ce qui compte pour un
-  // joueur, c'est : "quelle partie du terrain va devenir mortelle ?". On peint
-  // donc la BANDE CONDAMNÉE entre la zone actuelle et la suivante, en rouge.
-  // Le contour actuel reste lime (tu es en sécurité dedans), le prochain est un
-  // tireté magenta franc.
-  let doomBand = null;
+  // Rectangle très large, servant de contour extérieur au voile.
+  const WORLD = [[-89, -179], [-89, 179], [89, 179], [89, -179]];
+
+  // Trois états, trois traitements — et un seul principe : la couleur dit ce qui
+  // est vrai MAINTENANT, jamais ce qui le sera plus tard.
+  //
+  //   dehors        = déjà hors-jeu       -> voilé, la carte s'efface
+  //   dans la zone  = terrain de jeu      -> carte nette, rien par-dessus
+  //   zone suivante = là où il faut aller -> tireté BLEU, aucun remplissage
+  //
+  // Le tireté était magenta, c'est-à-dire la couleur du chasseur, sur l'élément
+  // le plus permanent du terrain : la carte disait « danger » là où la règle dit
+  // « va là ». Le bleu est la couleur de la structure et de la zone dans la loi
+  // de couleur ; c'est celle qui appartient à ce cercle.
+  //
+  // La version précédente peignait en rouge la bande entre les deux cercles.
+  // C'était faux : cette bande est parfaitement jouable sur le moment, le rouge
+  // la faisait passer pour interdite. Le décompte du bandeau dit déjà quand
+  // elle tombera.
+  let outsideVeil = null;
   function setZone(zone) {
     if (!map || !zone || !zone.center) return;
     const c = [zone.center.lat, zone.center.lng];
+
+    // Voile sur tout ce qui est hors de la zone actuelle : un polygone monde
+    // troué du disque jouable. C'est le seul endroit vraiment interdit.
+    const hole = ringPoints(zone.center, zone.radius, 96, true);
+    if (!outsideVeil) {
+      outsideVeil = L.polygon([WORLD, hole], {
+        stroke: false, fillColor: '#050A1C', fillOpacity: 0.62, interactive: false,
+      }).addTo(map);
+    } else {
+      outsideVeil.setLatLngs([WORLD, hole]);
+    }
+    outsideVeil.bringToBack();
 
     if (!zoneCircle) {
       zoneCircle = L.circle(c, { radius: zone.radius, color: '#C6FF00', weight: 4, fill: false, interactive: false }).addTo(map);
@@ -161,26 +187,16 @@ window.GameMap = (function () {
       zoneCircle.setLatLng(c); zoneCircle.setRadius(zone.radius);
     }
 
-    const shrinking = zone.nextShrinkAt && zone.nextRadius < zone.radius;
-
-    if (shrinking) {
-      const outer = ringPoints(zone.center, zone.radius, 72, false);
-      const inner = ringPoints(zone.center, zone.nextRadius, 72, true);
-      if (!doomBand) {
-        doomBand = L.polygon([outer, inner], {
-          stroke: false, fillColor: '#FF3B1F', fillOpacity: 0.22, interactive: false,
-        }).addTo(map);
-      } else {
-        doomBand.setLatLngs([outer, inner]);
-      }
+    // Zone suivante : une cible à rejoindre, pas une menace. Tireté, sans fond,
+    // pour qu'on lise « va là » et pas « n'entre pas ».
+    if (zone.nextShrinkAt && zone.nextRadius < zone.radius) {
       if (!nextZoneCircle) {
-        nextZoneCircle = L.circle(c, { radius: zone.nextRadius, color: '#FF2E88', weight: 4, dashArray: '14 10', fill: false, interactive: false }).addTo(map);
+        nextZoneCircle = L.circle(c, { radius: zone.nextRadius, color: '#1F6BFF', weight: 3, dashArray: '10 12', fill: false, interactive: false }).addTo(map);
       } else {
         nextZoneCircle.setLatLng(c); nextZoneCircle.setRadius(zone.nextRadius);
       }
-    } else {
-      if (doomBand) { map.removeLayer(doomBand); doomBand = null; }
-      if (nextZoneCircle) { map.removeLayer(nextZoneCircle); nextZoneCircle = null; }
+    } else if (nextZoneCircle) {
+      map.removeLayer(nextZoneCircle); nextZoneCircle = null;
     }
   }
 
@@ -199,7 +215,7 @@ window.GameMap = (function () {
     if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
     if (zoneCircle) { map.removeLayer(zoneCircle); zoneCircle = null; }
     if (nextZoneCircle) { map.removeLayer(nextZoneCircle); nextZoneCircle = null; }
-    if (doomBand) { map.removeLayer(doomBand); doomBand = null; }
+    if (outsideVeil) { map.removeLayer(outsideVeil); outsideVeil = null; }
     for (const m of markers.values()) map.removeLayer(m);
     markers.clear();
     revealMarkers.forEach((m) => map.removeLayer(m)); revealMarkers = [];

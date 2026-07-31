@@ -25,9 +25,6 @@
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
-  <div class="scanlines" aria-hidden="true"></div>
-  <div class="grid-bg" aria-hidden="true"></div>
-
   <!-- Liaison perdue : visible sur TOUS les écrans. Avant, l'indicateur réseau
        n'existait que dans la partie : l'hôte dans une zone morte appuyait sur
        CRÉER et n'obtenait strictement rien. -->
@@ -291,13 +288,29 @@
       <button id="btn-players" class="act" aria-pressed="false">ÉQUIPES</button>
     </div>
 
-    <!-- Alerte hors-zone plein écran -->
+    <!-- Alerte hors-zone : incrustation BASSE, jamais plein écran.
+         La version précédente couvrait la carte pendant tout le délai de grâce.
+         Or la boussole a été retirée au motif que « la direction de la zone se
+         lit sur la carte » : on sommait donc le joueur de courir en lui masquant
+         le seul instrument qui dit où. L'urgence passe maintenant par le cadre
+         clignotant (#zone-frame), et la bannière porte enfin le cap et la
+         distance — l'information qui manquait. -->
+    <div id="zone-frame" class="zone-frame hidden" aria-hidden="true"></div>
     <div id="zone-alert" class="zone-alert hidden" role="alert" aria-live="assertive">
-      <div class="za-inner">
-        <div class="za-title">⚠ HORS ZONE</div>
-        <div class="za-sub">REVIENS DANS LA ZONE SÛRE</div>
-        <div id="za-countdown" class="za-count">10</div>
-        <div class="za-note">À 0 TU DEVIENS CHASSEUR</div>
+      <div class="za-bar">
+        <div class="za-lead">
+          <div class="za-title">⚠ HORS ZONE</div>
+          <div class="za-sub">À 0 TU DEVIENS CHASSEUR</div>
+        </div>
+        <div class="za-nav">
+          <div id="za-arrow" class="za-arrow" aria-hidden="true"></div>
+          <div id="za-dist" class="za-dist">—</div>
+        </div>
+        <!-- aria-hidden : ce chiffre change 4 fois par seconde dans une région
+             assertive. Un lecteur d'écran récitait un nombre en continu pendant
+             tout le décompte, couvrant tout le reste. Le titre suffit à annoncer
+             l'état une fois. -->
+        <div id="za-countdown" class="za-count" aria-hidden="true">10</div>
       </div>
     </div>
 

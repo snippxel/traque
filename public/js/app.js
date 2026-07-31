@@ -126,7 +126,7 @@
     });
   });
 
-  socket.on('disconnect', () => { if (state.inGame) toast('Connexion perdue — reconnexion…', 'amber'); });
+  socket.on('disconnect', () => { if (state.inGame) toast('Connexion perdue — reconnexion…'); });
 
   // ---------------------------------------------------------------- WATCHDOG
   // Sur mobile, la connexion peut mourir SANS événement 'disconnect' (écran
@@ -182,6 +182,8 @@
   socket.on('zone:alert', ({ deadline }) => {
     state.alertDeadline = deadline;
     $('zone-alert').classList.remove('hidden');
+    $('zone-frame').classList.remove('hidden');
+    updateZoneBearing();
     Sensors.startAlarm();
     Sensors.vibrate([300, 150, 300, 150, 600]);
   });
@@ -245,7 +247,7 @@
     // le joueur voyait le toast sans jamais voir le point apparaître.
     Sensors.sfx('third');
     Sensors.vibrate(120);
-    toast('SORTIE DE ZONE : ' + name, 'amber', 4000);
+    toast('SORTIE DE ZONE : ' + name, 'danger', 4000);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const pts = [[lat, lng]];
       if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
@@ -258,7 +260,7 @@
     // Même recadrage que hunter:flash : sinon la cible révélée loin du chasseur
     // n'apparaît jamais à l'écran malgré le toast de confirmation.
     Sensors.sfx('third');
-    toast('RADAR : cible localisée (' + name + ')', 'amber', 4000);
+    toast('RADAR : cible localisée (' + name + ')', 'hunter', 4000);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const pts = [[lat, lng]];
       if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
@@ -290,7 +292,7 @@
     GameMap.addDown(lat, lng, name, 120000);
     // hidersLeft vient du serveur : seul comptage fiable au moment de la capture
     if (typeof hidersLeft === 'number') {
-      setTimeout(() => toast('Cachés restants : ' + hidersLeft, 'amber', 3500), 900);
+      setTimeout(() => toast('Cachés restants : ' + hidersLeft, '', 3500), 900);
     }
   });
 
@@ -337,7 +339,7 @@
     // Retour au lobby après une partie (Rejouer) : on efface la carte précédente
     if (s.status === 'lobby' && state.wasPlaying) {
       state.wasPlaying = false;
-      GameMap.reset();
+      safeMapReset();
       teardownGame();
       state.endChimed = false;
       // La vérification de sécurité est refaite à CHAQUE partie. Le groupe a
@@ -496,7 +498,7 @@
     // Si l'écran peut se verrouiller, le GPS s'arrête et la position se fige :
     // mieux vaut prévenir le joueur une fois au début.
     Sensors.requestWakeLock().then((ok) => {
-      if (!ok) toast('⚠ L’écran peut se verrouiller : garde l’app ouverte, sinon ta position se fige.', 'amber', 8000);
+      if (!ok) toast('⚠ L’écran peut se verrouiller : garde l’app ouverte, sinon ta position se fige.', 'danger', 8000);
     });
     Sensors.ensureAudio();
     startHudTicker();
@@ -652,6 +654,29 @@
     if (!state.alertDeadline) return;
     const left = Math.max(0, Math.ceil((state.alertDeadline - Date.now()) / 1000));
     $('za-countdown').textContent = left;
+    updateZoneBearing();
+  }
+
+  // Cap et distance vers la zone : c'est l'information qui manquait totalement.
+  // Le joueur recevait un ordre ("REVIENS") et un décompte, mais rien qui dise
+  // où aller. Le cap est donné nord en haut, comme la carte : les deux se lisent
+  // dans le même repère, et aucune permission boussole n'est nécessaire.
+  function updateZoneBearing() {
+    const z = state.last && state.last.zone;
+    const p = state.selfPos;
+    const arrow = $('za-arrow');
+    const dist = $('za-dist');
+    if (!z || !z.center || !p) {
+      arrow.classList.add('hidden');
+      dist.textContent = 'CAP INCONNU';
+      return;
+    }
+    arrow.classList.remove('hidden');
+    arrow.style.transform = 'rotate(' + Math.round(GameMap.bearing(p, z.center)) + 'deg)';
+    // Distance jusqu'au BORD de la zone, pas jusqu'au centre : c'est ce que le
+    // joueur doit réellement parcourir pour être de nouveau en sécurité.
+    const toEdge = Math.round(haversine(p, z.center) - z.radius);
+    dist.textContent = toEdge > 0 ? toEdge + ' M' : 'ZONE ATTEINTE';
   }
   // Alerte "repéré au radar" : flash prolongé (6 s) pour être bien remarqué,
   // puis on laisse la carte + la bannière décomptée (chasseur visible 30 s).
@@ -676,7 +701,9 @@
         state.wasDispersing = false;
         Sensors.vibrate([120, 80, 120, 80, 350]);
         Sensors.sfx('kickoff');
-        toast(state.role === 'hunter' ? 'CHASSE OUVERTE — à toi de jouer !' : 'La chasse est lancée. Reste planqué.', 'amber', 4500);
+        // Le message du caché s'affichait sur la plaque magenta du chasseur.
+        toast(state.role === 'hunter' ? 'CHASSE OUVERTE — à toi de jouer !' : 'La chasse est lancée. Reste planqué.',
+          state.role === 'hunter' ? 'hunter' : '', 4500);
       }
       return;
     }
@@ -743,6 +770,7 @@
   function clearZoneAlert() {
     state.alertDeadline = null;
     $('zone-alert').classList.add('hidden');
+    $('zone-frame').classList.add('hidden');
     Sensors.stopAlarm();
   }
 
@@ -1085,11 +1113,19 @@
   // onze personnes. Et la case n'était jamais décochée : après REJOUER, la
   // partie suivante — jouée depuis un autre endroit — n'avait aucune
   // vérification de sécurité du tout.
+  // En mode ALÉATOIRE les rôles sont attribués automatiquement (voir plus haut),
+  // donc ce garde-fou ne se déclenche que sur une répartition manuelle réellement
+  // invalide : tout le monde chasseur, ou tout le monde caché.
+  function hasBothRoles(roster) {
+    return roster.some((p) => p.role === 'hunter') && roster.some((p) => p.role === 'hider');
+  }
+
   function updateLaunchState() {
     const btn = $('btn-launch');
     const block = $('launch-block');
     const chk = $('chk-safety');
-    const count = (state.last && state.last.roster || []).length;
+    const rs = (state.last && state.last.roster) || [];
+    const count = rs.length;
     const canVerify = !!state.selfPos;
 
     // Sans terrain affiché, il n'y a rien à certifier : la case est verrouillée.
@@ -1102,6 +1138,10 @@
       : '⚠ POSITION REQUISE POUR VÉRIFIER LA ZONE';
     else if (!gpsFresh()) why = '⚠ POSITION PÉRIMÉE — attends un nouveau point GPS';
     else if (count < 2) why = 'IL FAUT AU MOINS 2 OPÉRATEURS';
+    // Le serveur refuse déjà ce cas (game.js), mais il le refusait APRÈS le tap :
+    // l'hôte, debout au milieu du groupe, appuyait sur un bouton vert et
+    // récupérait une erreur en 13 px. Un blocage ne se découvre pas après coup.
+    else if (!hasBothRoles(rs)) why = 'IL FAUT AU MOINS 1 CHASSEUR ET 1 CACHÉ';
     else if (!validateConfig()) why = 'RÉGLAGES INCOHÉRENTS — VOIR RÉGLAGES AVANCÉS';
     else if (!chk.checked) why = 'COCHE LA VÉRIFICATION DE SÉCURITÉ POUR LANCER';
 
@@ -1198,7 +1238,7 @@
   $('btn-scan').onclick = () => {
     const s = state.last;
     if (s && s.dispersionEndsAt && Date.now() < s.dispersionEndsAt) {
-      toast('Attends la fin de la dispersion pour éliminer.', 'amber');
+      toast('Attends la fin de la dispersion pour éliminer.');
       return;
     }
     Sensors.vibrate(20); // l'action principale du chasseur ne donnait aucun retour tactile
@@ -1209,7 +1249,7 @@
     if (btn.disabled) return;
     btn.disabled = true; // désactivation optimiste
     socket.emit('useRadar', {}, (res) => {
-      if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'amber'); updateRadarButton(); return; }
+      if (!res || !res.ok) { toast((res && res.error) || 'Radar indisponible.', 'danger'); updateRadarButton(); return; }
       // Applique tout de suite le décompte à l'état local : sinon le ticker (250 ms)
       // réactiverait le bouton depuis un état périmé jusqu'au prochain état serveur (1.5 s)
       if (state.last && state.last.you && res.usesLeft != null) state.last.you.radarUsesLeft = res.usesLeft;
@@ -1417,10 +1457,20 @@
     updateLaunchState();
   }
 
+  // Une couche Leaflet qui refuse de disparaître ne doit JAMAIS pouvoir bloquer
+  // un changement d'écran. C'est exactement ce qui est arrivé : reset() levait
+  // une ReferenceError, et tout ce qui suivait dans resetToHome() — dont le
+  // show('screen-home') — était sauté. Le joueur appuyait sur RETOUR et restait
+  // sur une partie terminée, sa session déjà effacée.
+  function safeMapReset() {
+    try { GameMap.reset(); }
+    catch (err) { console.error('GameMap.reset', err); }
+  }
+
   function resetToHome() {
     teardownGame();
     Sensors.stopWatch();
-    GameMap.reset();
+    safeMapReset();
     state.joined = false; state.code = null; state.playerId = null; state.last = null; state.selfPos = null; state.sentPos = null;
     geoState.lastFixAt = 0; geoState.started = false;
     resetSafety();

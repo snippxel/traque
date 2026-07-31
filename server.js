@@ -30,7 +30,27 @@ const io = new Server(server, {
   pingTimeout: 12000,
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Compression : 409 ko partaient sur le fil sans être compressés, alors qu'un
+// joueur ouvre le lien partagé sur le terrain, en 4G incertaine. style.css et
+// app.js tombent à ~un quart. Chargement tolérant : si le module manque
+// (installation partielle), le serveur démarre quand même, sans compression —
+// jamais un écran blanc pour une dépendance d'optimisation.
+try { app.use(require('compression')()); }
+catch (_) { console.warn('compression indisponible — réponses non compressées'); }
+
+// Cache : le service worker est en network-first et sert explicitement à ne
+// JAMAIS figer une version périmée. Une durée de vie longue sur la coquille
+// entrerait en conflit direct avec ça — un déploiement en pleine soirée de jeu
+// ne toucherait plus les téléphones. On ne met donc en cache long que ce qui ne
+// change jamais (libs et icônes), et on revalide tout le reste : un 304 coûte
+// un aller-retour d'en-têtes, pas 110 ko.
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  setHeaders(res, filePath) {
+    const long = /[\\/](vendor|icons)[\\/]/.test(filePath);
+    res.setHeader('Cache-Control', long ? 'public, max-age=604800, immutable' : 'no-cache');
+  },
+}));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: gm.rooms.size }));
 
 const gm = new GameManager();

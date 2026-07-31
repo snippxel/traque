@@ -23,6 +23,7 @@
     "test": "node tests/flow.test.js && node tests/zone.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
   },
