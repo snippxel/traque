@@ -10,18 +10,23 @@ tokens d'easing dans `public/css/style.css` — `--hard`
 de capture). Les deux premiers sont déjà les valeurs canoniques : **aucun plan
 ne doit introduire une nouvelle courbe.**
 
-## Ordre d'exécution recommandé
+## État
 
-| # | Plan | Sév. | Dépendances | Statut |
-|---|------|------|-------------|--------|
-| 001 | [Flèche de cap, chemin court](001-fleche-cap-chemin-court.md) | HIGH | aucune | À FAIRE |
-| 002 | [Clignotements sur l'opacité](002-clignotements-sur-opacite.md) | HIGH | aucune | À FAIRE |
-| 003 | [Entrée des alertes en ease-out](003-entree-des-alertes-en-ease-out.md) | HIGH | aucune | À FAIRE |
-| 004 | [Rétrécissement de zone animé](004-retrecissement-de-zone-anime.md) | Occasion | aucune | À FAIRE |
-| 005 | [Ouverture de la chasse](005-ouverture-de-la-chasse.md) | Occasion | 003 (partage `--out`) | À FAIRE |
+**Les cinq plans sont appliqués**, tous dans le commit `131d5e7` (« Audit de
+motion : cinq corrections et ajouts ») — le même qui a versé ce dossier au dépôt.
+Le tableau était resté à « À FAIRE » et laissait croire que tout le lot
+attendait encore.
 
-Les trois HIGH sont indépendants et peuvent partir dans n'importe quel ordre.
-Faire 003 avant 005 évite d'avoir à repasser sur les durées.
+| # | Plan | Sév. | Statut | Où c'est |
+|---|------|------|--------|----------|
+| 001 | [Flèche de cap, chemin court](001-fleche-cap-chemin-court.md) | HIGH | ✅ FAIT | `public/js/app.js` — plus court chemin angulaire dans `updateZoneBearing()` |
+| 002 | [Clignotements sur l'opacité](002-clignotements-sur-opacite.md) | HIGH | ✅ FAIT | `public/css/style.css` — `veilPulse` / `framePulse` ; `magflash` et `zoneFrame` supprimés |
+| 003 | [Entrée des alertes en ease-out](003-entree-des-alertes-en-ease-out.md) | HIGH | ✅ FAIT | `public/css/style.css` — `thirdIn 260ms var(--out)` sur les deux blocs de bandeaux |
+| 004 | [Rétrécissement de zone animé](004-retrecissement-de-zone-anime.md) | Occasion | ✅ FAIT | `public/js/map.js` — interpolation du rayon, contraction seule, ease-out cubique |
+| 005 | [Ouverture de la chasse](005-ouverture-de-la-chasse.md) | Occasion | ✅ FAIT | `#kickoff` (`index.html` / `style.css` / `showKickoff()`) |
+
+Les plans restent en place : ils documentent le pourquoi de chaque valeur, et
+c'est ce qu'on relit avant de toucher à une durée ou à une courbe.
 
 ## Ce que l'audit a écarté
 

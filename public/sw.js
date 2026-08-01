@@ -5,7 +5,7 @@
  * "network-first" pour la coquille statique. Le cache ne sert QUE de repli quand
  * le réseau est indisponible — jamais pour figer une version périmée.
  */
-const CACHE = 'traque-shell-v20';
+const CACHE = 'traque-shell-v21';
 const SHELL = [
   '/',
   '/index.html',

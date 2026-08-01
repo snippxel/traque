@@ -148,6 +148,28 @@
     if (Date.now() - state.lastAt > SILENCE_MS) forceResync();
   }, 2500);
 
+  // Un serveur endormi et un téléphone sans réseau produisent exactement le même
+  // silence, et le bandeau les confondait sous « HORS LIGNE ». Or Render tier
+  // gratuit endort le service après ~15 min sans trafic : le premier joueur qui
+  // ouvre le lien déclenche un démarrage à froid de 30 à 50 s. On lui disait
+  // que SA connexion était morte — il coupe le WiFi, relance l'app, et remet
+  // l'attente à zéro devant le groupe. Tant que le téléphone a du réseau, un
+  // serveur muet est un serveur qui démarre, et ça se dit autrement.
+  const WAKE_GIVEUP_MS = 90000; // au-delà, ce n'est plus un démarrage
+  let downSince = 0;
+
+  // navigator.onLine ne prouve pas l'accès à Internet, mais un `false` est
+  // fiable dans l'autre sens : l'appareil sait qu'il n'a aucune interface.
+  function offlineDevice() { return navigator.onLine === false; }
+
+  function bannerState() {
+    if (offlineDevice()) return { cls: '', txt: '⚠ HORS LIGNE — VÉRIFIE TA CONNEXION' };
+    if (Date.now() - downSince > WAKE_GIVEUP_MS) {
+      return { cls: '', txt: '⚠ SERVEUR INJOIGNABLE — NOUVELLE TENTATIVE…' };
+    }
+    return { cls: 'waking', txt: '↻ RÉVEIL DU SERVEUR — JUSQU’À UNE MINUTE' };
+  }
+
   // Indicateur de liaison : le joueur voit en un coup d'œil si ses données sont
   // fraîches, plutôt que de se demander si l'écran est figé.
   function updateNetBadge() {
@@ -155,14 +177,27 @@
     if (!el) return;
     const silence = state.lastAt ? Date.now() - state.lastAt : Infinity;
     let cls = '', txt = 'LIÉ';
+    // En partie, le serveur reçoit du trafic en continu : il ne s'endort pas.
+    // Une coupure y vient du réseau du joueur dans l'immense majorité des cas,
+    // et ce badge se lit en deux secondes — il reste donc laconique.
     if (!socket.connected) { cls = 'down'; txt = 'HORS LIGNE'; }
     else if (silence > SILENCE_MS) { cls = 'warn'; txt = 'RESYNC…'; }
     el.className = 'net-badge' + (cls ? ' ' + cls : '');
     $('net-text').textContent = txt;
+
     // Le badge ne vivait que dans l'écran de jeu : sur l'accueil et dans le
     // lobby, un joueur dans une zone morte appuyait sur un bouton et n'obtenait
     // rien du tout — pas de message, pas d'état, rien. Bandeau global ici.
-    $('offline-banner').classList.toggle('hidden', socket.connected || state.inGame);
+    const banner = $('offline-banner');
+    if (socket.connected) downSince = 0;
+    else if (!downSince) downSince = Date.now();
+    const montrer = !socket.connected && !state.inGame;
+    banner.classList.toggle('hidden', !montrer);
+    if (montrer) {
+      const b = bannerState();
+      banner.textContent = b.txt;
+      banner.classList.toggle('waking', b.cls === 'waking');
+    }
   }
 
   // Retour au premier plan : on resynchronise immédiatement, sans attendre le
@@ -987,6 +1022,7 @@
     $('chat-messages').innerHTML = '';
     chatVus.clear(); // sinon un rejeu après REJOUER serait filtré comme déjà vu
     $('players-panel').classList.add('hidden');
+    $('modal-rules').classList.add('hidden');
     $('modal-confirm').classList.add('hidden');
     unreadChat = 0; updateChatBadge();
   }
@@ -1169,21 +1205,39 @@
   ['btn-create', 'btn-join'].forEach((id) => { $(id).dataset.label = $(id).textContent; });
 
   // Filet : si le serveur ne répond pas (Render endormi, zone morte), on rend
-  // la main au bout de 12 s avec un message, au lieu de figer les boutons.
+  // la main avec un message, au lieu de figer les boutons.
+  //
+  // Deux paliers, et c'est le fond du correctif : 12 s suffisent largement à un
+  // serveur déjà chaud, mais un service Render endormi met 30 à 50 s à démarrer.
+  // Abandonner au milieu de ce démarrage affichait « PAS DE RÉPONSE » à l'hôte
+  // debout au milieu du groupe — qui relance l'app, ce qui recommence l'attente
+  // depuis le début. On requalifie donc l'attente au lieu de l'interrompre :
+  // l'émission est bufferisée par Socket.io et partira dès la connexion établie.
+  const ACK_WARN_MS = 12000;
+  const ACK_GIVEUP_MS = 60000;
   function withTimeout(btn, label, run) {
     setHomeBusy(btn, true, label);
     let done = false;
+    const warn = setTimeout(() => {
+      if (done || offlineDevice()) return; // hors ligne : le bandeau dit déjà quoi faire
+      btn.textContent = '[ RÉVEIL DU SERVEUR… ]';
+      homeError('LE SERVEUR DÉMARRE — JUSQU’À UNE MINUTE. NE QUITTE PAS L’APP.');
+      $('home-error').classList.add('info');
+    }, ACK_WARN_MS);
     const to = setTimeout(() => {
       if (done) return;
       done = true;
+      clearTimeout(warn);
       setHomeBusy(btn, false);
       homeError('PAS DE RÉPONSE DU SERVEUR — vérifie ta connexion et réessaie.');
-    }, 12000);
+    }, ACK_GIVEUP_MS);
     return (res) => {
       if (done) return;
       done = true;
+      clearTimeout(warn);
       clearTimeout(to);
       setHomeBusy(btn, false);
+      homeError(''); // efface l'avis de réveil avant que `run` pose son propre message
       run(res);
     };
   }
@@ -1220,8 +1274,23 @@
   // Le clavier mobile affiche "OK" / "Go" : il ne faisait rien, il n'y avait
   // aucun <form>. Il fallait viser REJOINDRE au pouce, clavier ouvert.
   $('home-form').addEventListener('submit', (e) => { e.preventDefault(); doJoin(); });
-  function homeError(msg) { $('home-error').textContent = msg; }
+  function homeError(msg) {
+    const el = $('home-error');
+    el.textContent = msg;
+    // Rouge par défaut : seul l'avis de réveil du serveur repasse en bleu, et il
+    // se le remet lui-même juste après.
+    el.classList.remove('info');
+  }
   $('input-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase(); });
+
+  // --- Règles ---
+  // Trois portes vers le même texte : l'accueil (quelqu'un qui ouvre un lien
+  // partagé sans savoir ce qu'est ce jeu), le salon (l'hôte, qui doit
+  // l'expliquer au groupe, n'avait rien) et la partie (panneau ÉQUIPES).
+  ['btn-rules-home', 'btn-rules-lobby', 'btn-rules-game'].forEach((id) => {
+    const el = $(id);
+    if (el) el.onclick = () => openModal('modal-rules');
+  });
 
   // --- Lobby : config ---
   const cfgIds = ['cfg-startRadius', 'cfg-finalRadius', 'cfg-durationMin', 'cfg-shrinkSteps', 'cfg-revealIntervalMin', 'cfg-graceSeconds', 'cfg-radarUses', 'cfg-dispersionSeconds', 'cfg-startRevealSeconds', 'cfg-finalZoneMinutes', 'cfg-lastSurvivor'];

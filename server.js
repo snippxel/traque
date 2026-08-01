@@ -491,12 +491,30 @@ process.on('unhandledRejection', (err) => {
 // Anti-mise en veille (Render tier gratuit) : le service s'endort après ~15 min
 // sans requête entrante. On se ping soi-même pour rester chaud entre les parties
 // et éviter le démarrage à froid de ~30 s au moment de jouer.
+// Ce garde-fou était strictement indémontrable : aucune trace au démarrage,
+// aucune trace en cas d'échec. Si RENDER_EXTERNAL_URL manque, ou si le ping
+// échoue, le service s'endort et le prochain joueur attend le démarrage à froid
+// — sans que rien, nulle part, ne l'ait signalé. On le rend diagnosticable :
+// c'est la première chose à regarder dans les journaux Render quand un groupe
+// dit « ça n'ouvrait pas ».
 const SELF_URL = process.env.RENDER_EXTERNAL_URL;
+const KEEPALIVE_MS = 10 * 60 * 1000; // < 15 min : la fenêtre avant mise en veille
 if (SELF_URL) {
   const client = SELF_URL.startsWith('https') ? require('https') : require('http');
+  let echecs = 0;
   setInterval(() => {
-    client.get(SELF_URL + '/health', (r) => r.resume()).on('error', () => {});
-  }, 10 * 60 * 1000);
+    client.get(SELF_URL + '/health', (res) => {
+      res.resume();
+      if (echecs) console.log(`[keepalive] ping rétabli après ${echecs} échec(s)`);
+      echecs = 0;
+    }).on('error', (err) => {
+      // Plafonné : un service coupé du réseau ne doit pas noyer les journaux.
+      if (++echecs <= 3) console.warn(`[keepalive] ping en échec (${echecs}) :`, err.message);
+    });
+  }, KEEPALIVE_MS);
+  console.log(`[keepalive] armé — ${SELF_URL}/health toutes les 10 min`);
+} else {
+  console.warn('[keepalive] RENDER_EXTERNAL_URL absente : le service s’endormira après ~15 min sans trafic, et le prochain joueur attendra le démarrage à froid.');
 }
 
 const PORT = process.env.PORT || 3000;

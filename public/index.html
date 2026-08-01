@@ -32,6 +32,10 @@
     ⚠ HORS LIGNE — RECONNEXION…
   </div>
 
+  <!-- Le libellé est réécrit par app.js : un serveur Render endormi et un
+       téléphone sans réseau produisent le même silence, mais pas la même
+       consigne. Voir updateNetBadge(). -->
+
   <!-- ================= ÉCRAN : ACCUEIL ================= -->
   <section id="screen-home" class="screen active" aria-labelledby="h-home">
     <div class="home-wrap">
@@ -66,7 +70,13 @@
         <button id="btn-scan-join" type="button" class="btn btn-ghost">[ SCANNER LE QR DE L'HÔTE ]</button>
       </form>
       <p id="home-error" class="err-line" role="alert" aria-live="assertive"></p>
-      <button id="btn-install" class="btn btn-ghost btn-sm hidden">[ INSTALLER L'APP ]</button>
+      <!-- La plupart des joueurs arriveront par un lien partagé, sans personne
+           pour leur expliquer le jeu. L'accueil ne disait nulle part ce qu'on
+           fait ici : il demandait un pseudo et proposait de créer une partie. -->
+      <div class="home-links">
+        <button id="btn-rules-home" type="button" class="btn btn-ghost btn-sm">[ RÈGLES DU JEU ]</button>
+        <button id="btn-install" class="btn btn-ghost btn-sm hidden">[ INSTALLER L'APP ]</button>
+      </div>
       <p class="foot-note">Aucun compte. Aucune donnée stockée. Une partie = un objet en mémoire.</p>
     </div>
   </section>
@@ -171,7 +181,13 @@
         </div>
       </div>
 
-      <button id="btn-leave-lobby" class="btn btn-ghost btn-sm">[ QUITTER ]</button>
+      <!-- Le briefing ci-dessus n'existe que pour les invités : l'hôte, celui
+           qui doit expliquer le jeu au groupe, n'avait aucune règle sous les
+           yeux. Cette rangée est visible pour tout le monde. -->
+      <div class="lobby-foot">
+        <button id="btn-rules-lobby" type="button" class="btn btn-ghost btn-sm">[ RÈGLES DU JEU ]</button>
+        <button id="btn-leave-lobby" class="btn btn-ghost btn-sm">[ QUITTER ]</button>
+      </div>
     </div>
 
     <!-- Barre de lancement collée en bas (hôte) : le code, l'effectif, la
@@ -286,6 +302,10 @@
       <!-- État de la boussole. Sans ça, « pas de cône » pouvait vouloir dire
            quatre choses différentes et rien ne les distinguait à l'écran. -->
       <div id="pp-heading" class="pp-heading">CAP : —</div>
+      <!-- Accès aux règles en partie. Pas un sixième bouton dans la barre
+           d'actions : celle-ci se vise au pouce en courant et n'a de place que
+           pour ce qui se fait en courant. Relire une règle, non. -->
+      <button id="btn-rules-game" type="button" class="pp-rules">RÈGLES DU JEU</button>
     </div>
 
     <!-- Chat rapide -->
@@ -447,6 +467,93 @@
         <input id="chat-input" type="text" maxlength="200" placeholder="Écris un message…" enterkeyhint="send" />
         <button type="submit" class="btn btn-sm">[ ENVOYER ]</button>
       </form>
+      <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
+    </div>
+  </div>
+
+  <!-- Règles complètes. Le BRIEFING du salon reste la version courte, lue par
+       un invité qui patiente ; celle-ci est la référence, atteignable depuis
+       l'accueil, le salon et la partie. C'est la seule surface du jeu qui se
+       lit assis : elle a donc le droit d'être longue. -->
+  <div id="modal-rules" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mt-rules">
+    <div class="modal-card rules-card">
+      <div class="modal-title" id="mt-rules">RÈGLES DU JEU</div>
+      <div class="rules-body" tabindex="0">
+        <div class="rl-sec">
+          <div class="rl-k">LE JEU</div>
+          <p>Un cache-cache en extérieur, à pied, dans un quartier. Le groupe est
+             coupé en deux : les <b class="c-hunter">CHASSEURS</b> doivent capturer
+             tous les <b class="c-hider">CACHÉS</b> avant la fin du temps. S’il en
+             reste un seul à la fin, les cachés gagnent.</p>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">DÉROULÉ D’UNE PARTIE</div>
+          <ol>
+            <li><b>DISPERSION</b> — les cachés fuient, les chasseurs attendent sur
+                place. Pendant les premières secondes, les chasseurs voient les
+                cachés en direct : éloigne-toi tant que ça dure.</li>
+            <li><b>CHASSE</b> — les chasseurs sont lâchés, les cachés disparaissent
+                de leur carte.</li>
+            <li><b>RÉTRÉCISSEMENT</b> — le terrain se referme par paliers jusqu’à
+                une petite zone finale, pour forcer les rencontres.</li>
+            <li><b>FIN</b> — temps écoulé, ou plus aucun caché en jeu.</li>
+          </ol>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">CE QUE TU VOIS SUR LA CARTE</div>
+          <p><b class="c-hider">CACHÉ</b> — toi, tes coéquipiers cachés, la zone.
+             Jamais un chasseur… sauf s’il t’a repéré au radar.</p>
+          <p><b class="c-hunter">CHASSEUR</b> — les autres chasseurs, et des
+             <b>SIGNAUX</b> : la dernière position connue d’un caché, publiée à
+             intervalle régulier. Chaque signal affiche son âge (« KARL · 3min ») :
+             c’est une piste, pas une cible.</p>
+          <p>Ce que tu n’as pas le droit de savoir n’arrive jamais sur ton
+             téléphone. Il n’y a rien à tricher.</p>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">CAPTURER</div>
+          <p>Chaque caché porte un QR code d’identité — bouton <b>MON CODE</b>.
+             Pour l’éliminer, un chasseur doit le scanner en face de lui — bouton
+             <b>ÉLIMINER</b>. Il faut donc l’avoir rattrapé pour de vrai.</p>
+          <p>Un caché capturé <b>devient chasseur</b> et poursuit ses anciens
+             coéquipiers. Les chasseurs sont de plus en plus nombreux.</p>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">LA ZONE</div>
+          <p>Reste dans le cercle. Dehors, un décompte démarre : à zéro tu
+             <b class="c-danger">deviens chasseur</b>. Ta sortie est signalée à tous
+             les chasseurs, avec ta position exacte.</p>
+          <p>Tu es prévenu environ une minute avant chaque rétrécissement, si tu
+             n’es pas déjà dans la prochaine zone. Le cercle tireté montre où elle
+             sera.</p>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">RADAR</div>
+          <p>Chaque chasseur en a un nombre limité pour la partie. Il révèle le
+             caché <b>le plus proche</b> pendant une minute.</p>
+          <p>Ça se paie : le caché repéré est prévenu, et voit à son tour la
+             position du chasseur pendant trente secondes.</p>
+        </div>
+
+        <div class="rl-sec">
+          <div class="rl-k">SUR LE TERRAIN</div>
+          <ul>
+            <li><b>Garde l’écran allumé</b> et l’app ouverte. Téléphone verrouillé,
+                le GPS s’arrête et ta position se fige pour les autres.</li>
+            <li>Le GPS est précis à 5–30 m. Le jeu en tient compte : ne joue pas au
+                mètre près.</li>
+            <li><b class="c-danger">Regarde devant toi.</b> Ce jeu fait courir des
+                gens dans la rue, les yeux sur un écran.</li>
+            <li>Coupure réseau : tu reprends ta place tout seul. Si tu es renvoyé à
+                l’accueil, rejoins avec <b>exactement le même pseudo</b>.</li>
+          </ul>
+        </div>
+      </div>
       <button class="btn btn-ghost btn-sm modal-close">[ FERMER ]</button>
     </div>
   </div>
