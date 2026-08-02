@@ -538,12 +538,44 @@ process.on('unhandledRejection', (err) => {
 // — sans que rien, nulle part, ne l'ait signalé. On le rend diagnosticable :
 // c'est la première chose à regarder dans les journaux Render quand un groupe
 // dit « ça n'ouvrait pas ».
+//
+// Rester chaud 24 h/24 coûte cher là où on ne joue pas : le tier gratuit
+// plafonne à ~750 h d'instance par mois et un mois de 31 jours en compte 744.
+// Six heures de marge, partagées avec tout autre service gratuit du compte —
+// un dépassement suspend le service jusqu'au mois suivant. On ne paie donc le
+// réveil qu'aux heures où un groupe peut se réunir, et à toute heure tant
+// qu'une partie tourne : on n'endort jamais un service en cours d'usage.
 const SELF_URL = process.env.RENDER_EXTERNAL_URL;
 const KEEPALIVE_MS = 10 * 60 * 1000; // < 15 min : la fenêtre avant mise en veille
+const EVEIL_DEBUT = 9, EVEIL_FIN = 1; // 9 h → 1 h du matin, heure de Paris
+// `format()` en fr-FR rend « 09 h », dont Number() ne tire que NaN — le service
+// ne se serait jamais réveillé. On lit la partie `hour` plutôt que la chaîne.
+const heureParis = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: 'Europe/Paris', hour: '2-digit', hourCycle: 'h23',
+});
+function heureLocale(d = new Date()) {
+  return Number(heureParis.formatToParts(d).find((p) => p.type === 'hour').value);
+}
+function enHeuresDeJeu() {
+  const h = heureLocale();
+  // Fenêtre à cheval sur minuit : l'intervalle est l'union, pas l'intersection.
+  return EVEIL_DEBUT <= EVEIL_FIN
+    ? (h >= EVEIL_DEBUT && h < EVEIL_FIN)
+    : (h >= EVEIL_DEBUT || h < EVEIL_FIN);
+}
 if (SELF_URL) {
   const client = SELF_URL.startsWith('https') ? require('https') : require('http');
   let echecs = 0;
+  let veille = null; // null = état initial, pour tracer la première bascule
   setInterval(() => {
+    const actif = enHeuresDeJeu() || gm.rooms.size > 0;
+    if (veille !== !actif) {
+      veille = !actif;
+      console.log(veille
+        ? '[keepalive] en pause — hors heures de jeu, le service peut s’endormir'
+        : '[keepalive] repris — heures de jeu ou partie en cours');
+    }
+    if (!actif) return;
     client.get(SELF_URL + '/health', (res) => {
       res.resume();
       if (echecs) console.log(`[keepalive] ping rétabli après ${echecs} échec(s)`);
@@ -553,7 +585,7 @@ if (SELF_URL) {
       if (++echecs <= 3) console.warn(`[keepalive] ping en échec (${echecs}) :`, err.message);
     });
   }, KEEPALIVE_MS);
-  console.log(`[keepalive] armé — ${SELF_URL}/health toutes les 10 min`);
+  console.log(`[keepalive] armé — ${SELF_URL}/health toutes les 10 min, entre ${EVEIL_DEBUT} h et ${EVEIL_FIN} h (Paris) ou dès qu'une partie tourne`);
 } else {
   console.warn('[keepalive] RENDER_EXTERNAL_URL absente : le service s’endormira après ~15 min sans trafic, et le prochain joueur attendra le démarrage à froid.');
 }
