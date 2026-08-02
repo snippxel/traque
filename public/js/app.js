@@ -60,23 +60,60 @@
   // toasts empilés sur 238 px — 29 % de l'écran — par-dessus la boussole et le
   // badge GPS, exactement au moment où il faut décider où courir.
   const TOAST_MAX = 2;
+  const TOAST_OUT_MS = 220;   // doit rester ≥ la transition de sortie en CSS
+
+  // Un toast qui s'en va emmenait la place des autres avec lui : ceux qui
+  // restaient sautaient vers le bas d'un coup. Sur un écran lu par coups d'œil de
+  // deux secondes, un saut ne se lit pas comme « il y en a un de moins », il se
+  // lit comme « le message a changé » — donc on le relit, en courant.
+  // On mesure les positions avant retrait, on remet chacun à sa place d'avant,
+  // puis on relâche : ils glissent (FLIP). Mesurer plutôt qu'animer une hauteur,
+  // parce que le compteur « ×N » modifie aussi la largeur d'un toast déjà posé.
+  function dropToast(t) {
+    if (!t || t.classList.contains('out')) return;
+    const box = t.parentNode;
+    if (!box) return;
+    t.classList.add('out');
+    setTimeout(() => {
+      if (t.parentNode !== box) return;
+      const before = new Map([...box.children].map((el) => [el, el.getBoundingClientRect().top]));
+      t.remove();
+      for (const el of box.children) {
+        const dy = before.get(el) - el.getBoundingClientRect().top;
+        if (!dy) continue;
+        el.style.transition = 'none';
+        el.style.transform = 'translateY(' + dy + 'px)';
+        el.getBoundingClientRect();      // fige la position de départ
+        el.style.transition = '';        // rend la main à la transition de la classe
+        el.style.transform = '';
+      }
+    }, TOAST_OUT_MS);
+  }
+
   function toast(msg, kind, ms) {
     const box = $('toasts');
-    // Message identique déjà affiché : on incrémente un compteur au lieu d'empiler
-    const twin = [...box.children].find((el) => el.dataset.msg === msg);
+    // Message identique déjà affiché : on incrémente un compteur au lieu d'empiler.
+    // On ignore ceux qui sont en train de sortir — se raccrocher à un toast
+    // déjà condamné faisait disparaître le message aussitôt affiché.
+    const live = [...box.children].filter((el) => !el.classList.contains('out'));
+    const twin = live.find((el) => el.dataset.msg === msg);
     if (twin) {
       twin.dataset.n = String((+twin.dataset.n || 1) + 1);
       twin.textContent = msg + ' ×' + twin.dataset.n;
       return;
     }
     const t = document.createElement('div');
-    t.className = 'toast' + (kind ? ' ' + kind : '');
+    t.className = 'toast pre' + (kind ? ' ' + kind : '');
     t.textContent = msg;
     t.dataset.msg = msg;
     t.dataset.n = '1';
     box.appendChild(t);
-    while (box.children.length > TOAST_MAX) box.firstElementChild.remove();
-    setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, ms || 3200);
+    t.getBoundingClientRect();     // fige l'état d'entrée avant de le relâcher
+    t.classList.remove('pre');
+    // Au-delà du plafond, les plus anciens partent tout de suite : la pile est
+    // ancrée en bas, retirer par le haut ne déplace rien de ce qui reste.
+    while (live.length >= TOAST_MAX) live.shift().remove();
+    setTimeout(() => dropToast(t), ms || 3200);
   }
 
   // Le serveur répond en prose ("Il faut au moins 2 joueurs."), l'interface parle

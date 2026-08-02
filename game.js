@@ -7,6 +7,8 @@
  * événements que server.js se charge d'émettre via Socket.io.
  */
 
+const { randomInt } = require('crypto');
+
 // ----------------------------------------------------------------------------
 // Constantes de réglage (assumées par le cahier des charges)
 // ----------------------------------------------------------------------------
@@ -62,18 +64,36 @@ function haversine(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans I,O,0,1 ambigus
-function randomCode() {
+// Tirage CRYPTOGRAPHIQUE, et non Math.random().
+//
+// Ces chaînes ne sont pas décoratives, ce sont les deux seuls secrets du jeu :
+//   · qrToken  = le droit d'éliminer quelqu'un. Toute la règle « la capture se
+//     fait en personne » repose sur le fait qu'on ne peut pas deviner le QR
+//     d'un autre joueur sans se mettre physiquement en face de lui.
+//   · playerId = la session. `resume({code, playerId})` rend le contrôle total
+//     d'un joueur sans aucune autre vérification.
+//
+// Math.random() en V8 est un xorshift128+ : son état interne se reconstitue à
+// partir d'une poignée de sorties. Un joueur légitime reçoit déjà 40 caractères
+// tirés de ce générateur (son playerId + son qrToken) — de quoi, en principe,
+// prédire tous les jetons produits ensuite par le même processus, donc éliminer
+// n'importe qui à distance et usurper n'importe quelle session.
+// randomInt() puise dans le CSPRNG de l'OS : même coût d'écriture, plus de fil
+// à tirer. Tirage rejeté hors du multiple exact de l'alphabet, sinon les
+// premiers caractères sortiraient un peu plus souvent que les derniers.
+function pick(alphabet, n) {
   let s = '';
-  for (let i = 0; i < 5; i++) s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  for (let i = 0; i < n; i++) s += alphabet[randomInt(alphabet.length)];
   return s;
 }
 
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans I,O,0,1 ambigus
+function randomCode() {
+  return pick(CODE_ALPHABET, 5);
+}
+
 function randomToken(n = 24) {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let s = '';
-  for (let i = 0; i < n; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
+  return pick('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', n);
 }
 
 function clamp(v, lo, hi) {

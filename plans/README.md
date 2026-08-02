@@ -41,13 +41,26 @@ Constatés puis rejetés après relecture — ne pas les rouvrir sans élément 
   (la capture). Conforme.
 - **Consolidation de tokens** — il n'y a pas de courbes en double à fusionner.
 
-## Constats non retenus dans ce lot
+## Second lot — les trois MEDIUM laissés de côté
 
-Vus par l'audit, laissés de côté par choix :
+Repris et appliqués. Ils n'ont pas de fiche de plan : le diagnostic de l'audit
+suffisait, et le pourquoi de chaque valeur est écrit à l'endroit du code.
 
-- Les toasts entrent en `@keyframes` (redémarrent à zéro) et la pile saute quand
-  l'un d'eux est retiré. MEDIUM.
-- `pulse` descend à `scale(.72)` / `opacity: .4` : un marqueur est à moitié
-  effacé une seconde sur deux, sur un écran lu en deux secondes. MEDIUM.
-- Le bloc `prefers-reduced-motion` est un reset `*` à `.001ms !important` : il
-  supprime tout au lieu de ne retirer que les déplacements. MEDIUM.
+| Constat | Statut | Où c'est |
+|---------|--------|----------|
+| Les toasts entrent en `@keyframes` (redémarrent à zéro) et la pile saute quand l'un d'eux est retiré | ✅ FAIT | `style.css` (`.toast` en transition, états `.pre`/`.out`) et `app.js` (`dropToast()`, réagencement FLIP) |
+| `pulse` descend à `scale(.72)` / `opacity: .4` : un marqueur est à moitié effacé une seconde sur deux | ✅ FAIT | `style.css` — cycle inversé vers le haut (`.92`→`1`, `scale(1)`→`1.22`), cadence alignée sur `live` à 1,4 s |
+| `prefers-reduced-motion` est un reset `*` à `.001ms !important` : il supprime tout au lieu des seuls déplacements | ✅ FAIT | `style.css` — bloc du haut réduit, et redéfinition des `@keyframes` **en fin de fichier** |
+
+Trois choses à savoir avant d'y retoucher :
+
+- **Le bloc de mouvement réduit DOIT rester en fin de fichier.** Une `@keyframes`
+  est écrasée par la dernière définition de son nom, media query ou non. Placé
+  avant les originales, il n'aurait aucun effet — et ça ne se voit pas.
+- La règle appliquée est : **on retire les déplacements et les clignotements, on
+  garde les fondus.** Chaque animation conserve durée, délai et place dans la
+  cascade ; seul son moyen change. Les deux balayages (`koWipe`, `capWipe`)
+  gardent leur `transform` d'arrivée, sinon le pavé reste à `scaleX(0)`.
+- L'entrée des toasts est passée de `--hard` 340 ms à `--out` 260 ms : c'était le
+  dernier bloc encore sur l'ancienne courbe, alors que le plan 003 avait déjà
+  tranché pour toute incrustation qui entre.

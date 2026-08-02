@@ -113,13 +113,28 @@ traque/
 
 ## Tests
 
-Deux suites d'intégration Socket.io pilotent de vraies parties de bout en bout.
+Quinze suites d'intégration Socket.io pilotent de vraies parties de bout en bout.
 Elles ont besoin du serveur démarré dans un autre terminal :
 
 ```bash
 npm start          # terminal 1 — laisse tourner
-npm test           # terminal 2 — lance les deux suites
+npm test           # terminal 2 — enchaîne les quinze suites
 ```
+
+Chacune se lance aussi seule (`npm run test:radar`, `test:zone`, `test:rooms`…).
+Compter environ trois minutes au total : plusieurs suites attendent de vrais
+délais de jeu (rétrécissements, fenêtres de grâce), et un test qui raccourcirait
+ces attentes ne testerait plus rien.
+
+Deux pièges récurrents, tenus par les suites existantes :
+
+- **Les ticks serveur diffusent l'état toutes les 1,5 s.** Un test qui attend un
+  événement à `t+X` doit attendre `X + 1,5 s + marge` : sinon le dernier état
+  reçu date d'avant l'événement, et l'assertion mesure une course, pas une règle.
+- **Ne jamais assertionner sur un compteur global** (le nombre de salles de
+  `/health`, par exemple). Les autres suites laissent des parties en fenêtre de
+  grâce qui expirent pendant l'attente : le test mesure alors le bruit des
+  voisins. `tests/rooms.test.js` sonde des codes précis pour cette raison.
 
 ---
 

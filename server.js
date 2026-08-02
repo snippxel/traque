@@ -55,6 +55,10 @@ app.get('/health', (_req, res) => res.json({ ok: true, rooms: gm.rooms.size }));
 
 const gm = new GameManager();
 
+// Plafonds de la salle des machines. Voir le handler `createRoom` pour le pourquoi.
+const MAX_ROOMS = 500;
+const CREATE_COOLDOWN_MS = 1500;
+
 // Index socketId -> { code, playerId } pour retrouver le joueur à la déconnexion
 const socketIndex = new Map();
 
@@ -238,6 +242,23 @@ function flashHunters(room, hider) {
 io.on('connection', (socket) => {
   // --- Création de partie ---
   socket.on('createRoom', ({ name } = {}, cb) => {
+    // Seul point d'entrée qui alloue de la mémoire sans qu'on ait rien à
+    // prouver : pas de compte, pas d'auth, un lien de partage public. N'importe
+    // qui peut ouvrir un socket et boucler.
+    // C'est le PLAFOND qui protège réellement l'instance (Render tier gratuit,
+    // 512 Mo) : il tient quel que soit le nombre de sockets. Le frein, lui, est
+    // par socket — on en ouvre d'autres, il ne prétend pas à mieux ; il évite
+    // simplement qu'une boucle distraite y arrive en une seconde.
+    // 500 salles, c'est déjà cinquante fois un samedi soir chargé.
+    if (gm.rooms.size >= MAX_ROOMS) {
+      return ack(cb, { ok: false, error: 'Serveur saturé, réessaie dans un instant.' });
+    }
+    const now = Date.now();
+    if (now - (socket.data.lastCreateAt || 0) < CREATE_COOLDOWN_MS) {
+      return ack(cb, { ok: false, error: 'Attends une seconde avant de recréer une partie.' });
+    }
+    socket.data.lastCreateAt = now;
+
     const room = gm.createRoom();
     const player = room.addPlayer(name);
     player.socketId = socket.id;
@@ -439,26 +460,46 @@ io.on('connection', (socket) => {
   });
 
   // --- Déconnexion ---
-  socket.on('disconnect', () => {
-    const ref = socketIndex.get(socket.id);
-    socketIndex.delete(socket.id);
-    if (!ref) return;
-    const room = gm.getRoom(ref.code);
-    if (!room) return;
-    const player = room.players.get(ref.playerId);
-    if (!player) return;
-    // On garde le joueur : fenêtre de grâce de 90s pour reconnexion
-    player.connected = false;
-    player.disconnectAt = Date.now();
-    player.socketId = null;
-  });
+  // On garde le joueur : fenêtre de grâce pour reconnexion (voir releaseSocket).
+  socket.on('disconnect', () => releaseSocket(socket));
 });
 
 // ----------------------------------------------------------------------------
 // Petits helpers
 // ----------------------------------------------------------------------------
+// Un socket ne tient QU'UNE place à la fois. Rattacher un socket libère donc
+// d'abord celle qu'il occupait — sinon `createRoom` appelé deux fois sur le même
+// socket laissait derrière lui une salle dont l'unique joueur restait marqué
+// `connected` avec un socketId mort. Cette salle ne se vidait jamais, donc
+// n'était jamais supprimée, et continuait d'être tickée toutes les 1,5 s à vie :
+// une simple boucle `emit('createRoom')` sur un seul socket, sans aucune
+// authentification, saturait la mémoire du service.
+// (Mesuré avant correction : 50 créations → 49 salles orphelines permanentes.)
 function bind(socket, code, playerId) {
+  const ref = socketIndex.get(socket.id);
+  // Déjà en place (resume sur la même place) : surtout ne rien libérer, l'appelant
+  // vient tout juste de remettre le joueur en ligne.
+  if (ref && ref.code === code && ref.playerId === playerId) return;
+  releaseSocket(socket);
   socketIndex.set(socket.id, { code, playerId });
+}
+
+// Rend la place tenue par ce socket, exactement comme une déconnexion : le
+// joueur garde sa fenêtre de grâce pour revenir, et la salle redevient
+// susceptible d'être vidée puis supprimée par le tick.
+function releaseSocket(socket) {
+  const ref = socketIndex.get(socket.id);
+  socketIndex.delete(socket.id);
+  if (!ref) return;
+  const room = gm.getRoom(ref.code);
+  if (!room) return;
+  const player = room.players.get(ref.playerId);
+  // Un autre socket a déjà repris ce joueur (reconnexion plus rapide que la
+  // notification de coupure) : il est en ligne, ce n'est plus à nous de le sortir.
+  if (!player || player.socketId !== socket.id) return;
+  player.connected = false;
+  player.disconnectAt = Date.now();
+  player.socketId = null;
 }
 
 function ctxOf(socket) {

@@ -59,17 +59,23 @@
 :focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
 .act:focus-visible, .pp-close:focus-visible, .recenter:focus-visible { outline-offset: -3px; }
 
+/* MOUVEMENT RÉDUIT — ce qu'on retire, et ce qu'on garde.
+   L'ancien bloc écrasait TOUTE animation et TOUTE transition à .001ms. C'était
+   un interrupteur, pas un réglage : les fondus disparaissaient avec le reste, et
+   l'interface sautait d'un état à l'autre sans jamais dire ce qui venait de
+   changer. Moins lisible pour tout le monde — y compris pour qui a demandé moins
+   de mouvement, qui n'a jamais demandé moins d'information.
+   La règle retenue : on retire les DÉPLACEMENTS et les CLIGNOTEMENTS, on garde
+   les FONDUS. Un fondu ne déclenche pas de vertige et il porte le message
+   « ceci vient d'apparaître ».
+   La neutralisation passe par une redéfinition des @keyframes en fin de fichier
+   (une @keyframes est écrasée par la DERNIÈRE définition du même nom : la placer
+   ici, avant les originales, n'aurait aucun effet). Chaque animation garde ainsi
+   sa durée, son délai et sa place dans la cascade — seul son moyen change. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-    scroll-behavior: auto !important;
-  }
-  /* Le cadre hors-zone cesse de clignoter mais reste rouge plein : l'alerte ne
-     doit jamais disparaître pour un joueur sensible au mouvement. */
-  .zone-frame { opacity: 1 !important; }
-  .spot-alert { background: rgba(255, 46, 136, .26) !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; }
+  /* Le bandeau perd son clignotement : il lui faut alors un fond qui tienne
+     seul, sans battement pour attirer l'œil. */
   .zone-closing { background: var(--red-dim) !important; }
 }
 
@@ -795,8 +801,21 @@ body.kb-typing .launch-bar { display: none; }
 
 /* Toasts : incrustations basses */
 .toasts { position: fixed; left: 10px; bottom: 118px; z-index: 95; display: grid; gap: 6px; justify-items: start; max-width: calc(100% - 20px); }
+/* Entrée et sortie en TRANSITION, pas en @keyframes. Une @keyframes repart
+   toujours de son image zéro : un toast dont l'entrée est coupée en route — par
+   son propre retrait, ou par la pile qui se réagence sous lui — sautait en
+   arrière avant de repartir. Une transition, elle, part de la valeur courante.
+   La courbe suit la décision du plan 003 : `--out` en 260 ms pour toute
+   incrustation qui entre, `--hard` (ease-in-out) est réservé aux allers-retours.
+   Ce bloc entrait encore en `--hard` 340 ms, seul rescapé de l'ancienne règle. */
 .toast { background: var(--elec); color: var(--white); padding: 10px 20px 11px 13px; font-size: 13px; font-weight: 800; letter-spacing: .02em;
-  clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%); animation: thirdIn 340ms var(--hard) both; }
+  clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%);
+  transition: transform 260ms var(--out), opacity 200ms linear; }
+/* `pre` = l'état d'où l'on vient, retiré à la frame suivante. `out` = l'état
+   vers lequel on part. Le retrait effectif est différé par le JS, qui en profite
+   pour faire glisser les toasts restants au lieu de les laisser sauter. */
+.toast.pre { transform: translateX(-104%); opacity: 0; }
+.toast.out { transform: translateX(-14px); opacity: 0; }
 /* « amber » désignait une couleur de l'ancienne DA et servait de fourre-tout :
    des messages destinés à un caché s'affichaient sur la plaque du chasseur.
    Le magenta est maintenant réservé à ce qui concerne réellement la chasse. */
@@ -873,7 +892,7 @@ body.kb-typing .launch-bar { display: none; }
   background: var(--mag); border: 0; border-radius: 0;
   clip-path: polygon(50% 0, 100% 100%, 50% 74%, 0 100%);
 }
-.mk-hunter .mk-dot { animation: pulse 1s infinite; }
+.mk-hunter .mk-dot { animation: pulse 1.4s ease-in-out infinite; }
 .mk-hunter .mk-label { background: var(--mag); color: var(--bg); }
 
 /* SIGNAL ANCIEN — anneau tireté. Reste un caché, donc reste lime : le gris
@@ -884,9 +903,19 @@ body.kb-typing .launch-bar { display: none; }
 /* RÉVÉLATION — anneau pulsant. Le disque était rouge, c'est-à-dire la couleur
    de l'élimination, pour désigner un caché bien vivant — et la bannière du même
    événement était lime. Les deux se contredisaient. */
-.mk-reveal .mk-dot { background: transparent; border: 3px solid var(--lime); animation: pulse 1s infinite; }
+.mk-reveal .mk-dot { background: transparent; border: 3px solid var(--lime); animation: pulse 1.4s ease-in-out infinite; }
 
-@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.72); } }
+/* Le cycle allait vers le BAS : de scale(1)/opacity 1 à scale(.72)/opacity .4.
+   Une seconde sur deux, le marqueur le plus important de l'écran — la position
+   exacte d'une cible, ou un chasseur qu'on vient de repérer — était plus petit
+   et à moitié effacé. Sur un écran consulté par coups d'œil de deux secondes en
+   courant, un coup d'œil sur deux tombait dans le creux.
+   Le cycle va maintenant vers le HAUT : le repos est le plancher, jamais le
+   plafond, et le marqueur n'est jamais moins visible qu'à l'arrêt. Un signal qui
+   grossit se lit comme une émission ; un signal qui rétrécit se lit comme une
+   disparition — c'est-à-dire l'inverse de ce que ces deux marqueurs annoncent.
+   1,4 s et non 1 s : c'est la cadence de `live`, déjà tenue par .pulse-dot. */
+@keyframes pulse { 0%,100% { opacity: .92; transform: scale(1); } 50% { opacity: 1; transform: scale(1.22); } }
 .mk-down .mk-dot { background: transparent; border: 3px solid var(--red); border-radius: 0; transform: rotate(45deg); }
 .mk-down .mk-label { background: var(--red); color: var(--bg); }
 .mk-label { position: absolute; top: 19px; left: 50%; transform: translateX(-50%); white-space: nowrap;
@@ -936,4 +965,54 @@ body.kb-typing .launch-bar { display: none; }
   /* « CHASSEUR » ne doit jamais se lire « CHASSEU… » : le rôle descend au
      plancher de 11 px pour garder de la marge plutôt que de se faire couper. */
   .stats .role-cell { font-size: 11px; }
+}
+
+/* =========================================================================
+   MOUVEMENT RÉDUIT — la neutralisation (voir le bloc du haut pour le pourquoi)
+
+   OBLIGATOIREMENT EN FIN DE FICHIER : une @keyframes est écrasée par la
+   dernière définition portant son nom, media query ou non. Placée avant les
+   originales, cette section n'aurait strictement aucun effet.
+
+   Chaque animation garde sa durée, son délai, son fill-mode et sa place dans la
+   cascade : c'est le même spectacle, joué sans déplacement. Ce qui traversait
+   l'écran fond sur place ; ce qui clignotait reste allumé.
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+
+  /* ---- Entrées : le déplacement devient un fondu ---- */
+  @keyframes thirdIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes koSlam  { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes capSlam { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes koBar   { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes koOut   { to { opacity: 0; } }
+
+  /* Les deux balayages gardent leur transform d'arrivée : le pavé part de
+     scaleX(0) dans sa règle de base, un fondu seul le laisserait invisible. */
+  @keyframes koWipe {
+    from { opacity: 0; transform: skewX(-11deg) scaleX(1); }
+    to   { opacity: 1; transform: skewX(-11deg) scaleX(1); }
+  }
+  @keyframes capWipe {
+    from { opacity: 0; transform: skewX(-11deg) scaleX(1.7); }
+    to   { opacity: 1; transform: skewX(-11deg) scaleX(1.7); }
+  }
+
+  /* ---- Boucles : le clignotement s'éteint, l'élément reste ----
+     Chaque alerte reste à son maximum de visibilité, jamais au creux : un
+     joueur sensible au mouvement ne doit rien perdre de l'information. */
+  @keyframes live        { 0%,100% { opacity: 1; } }
+  @keyframes framePulse  { 0%,100% { opacity: 1; } }
+  @keyframes veilPulse   { 0%,100% { opacity: 1; } }
+  @keyframes pulse       { 0%,100% { opacity: 1; transform: scale(1); } }
+  /* La ligne du viseur cesse de balayer et se pose au milieu du cadre : elle
+     dit encore où viser, elle ne bouge plus. */
+  @keyframes viewfinderSweep { 0%,100% { top: 50%; } }
+
+  /* ---- Toasts ----
+     Leur entrée/sortie est une transition (pas une @keyframes) : elle se neutralise
+     ici. L'opacité reste — c'est elle qui signale l'apparition. Le transform
+     devenu instantané couvre aussi le glissement de réagencement piloté en JS. */
+  .toast { transition: opacity 200ms linear; }
+  .toast.pre, .toast.out { transform: none; }
 }
