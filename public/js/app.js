@@ -48,6 +48,52 @@
   }
   function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (_) {} }
 
+  // Identifiant d'appareil. Il ne dit rien de la personne et ne quitte jamais
+  // le couple téléphone/serveur : il sert uniquement à distinguer « dix parties
+  // lancées par le même groupe » de « dix groupes différents » — donc à savoir
+  // si quelqu'un revient jouer un autre jour. Sans ça, aucun compteur ne peut
+  // répondre à la seule question qui décide de la suite du projet.
+  // Survivre au vidage du stockage n'a aucune importance : un appareil qui
+  // repart à zéro est simplement recompté comme nouveau.
+  const DEVICE_KEY = 'traque:device';
+  const deviceId = (() => {
+    try {
+      let d = localStorage.getItem(DEVICE_KEY);
+      if (!d) {
+        d = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now().toString(36)).replace(/-/g, '');
+        localStorage.setItem(DEVICE_KEY, d);
+      }
+      return d;
+    } catch (_) { return ''; } // navigation privée : on compte simplement moins bien
+  })();
+
+  // ------------------------------------------------------- Remontée d'erreurs
+  // Un bug chez un joueur ne se signalait à personne : il fermait l'app, et
+  // c'était tout. On envoie donc les plantages au serveur, où ils apparaissent
+  // dans les journaux. Rien d'identifiant ne part — ni nom, ni position, ni
+  // code de partie autre que celui de la salle en cours.
+  const erreursVues = new Set(); // une même erreur en boucle ne doit pas marteler le serveur
+  function signalerErreur(message, ou) {
+    try {
+      const cle = String(message).slice(0, 120);
+      if (erreursVues.has(cle) || erreursVues.size > 20) return;
+      erreursVues.add(cle);
+      fetch('/client-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: String(message).slice(0, 300), ou: String(ou || '').slice(0, 200), code: state.code || '' }),
+        keepalive: true, // l'envoi doit survivre à la fermeture de l'onglet
+      }).catch(() => {});
+    } catch (_) {}
+  }
+  window.addEventListener('error', (e) => {
+    signalerErreur(e.message || 'erreur', (e.filename || '') + ':' + (e.lineno || 0));
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e && e.reason;
+    signalerErreur((r && r.message) || String(r || 'promesse rejetée'), (r && r.stack || '').split('\n')[1] || '');
+  });
+
   // ------------------------------------------------------------------ Écrans
   function show(screenId) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
@@ -394,7 +440,7 @@
   // Clés des messages déjà affichés : l'historique rejoué à la reconnexion
   // recoupe forcément ce qui a été reçu en direct juste avant la coupure.
   const chatVus = new Set();
-  const cleChat = (m) => m.at + '|' + m.from + '|' + m.text;
+  const cleChat = (m) => m.id || (m.at + '|' + m.from + '|' + m.text);
 
   // Rejeu à l'arrivée ou au retour. On remplit UNIQUEMENT le fil de la modale :
   // pas de bulles, pas de sons. Faire surgir vingt bulles et vingt sons d'un
@@ -405,20 +451,23 @@
       const k = cleChat(m);
       if (chatVus.has(k)) continue;
       chatVus.add(k);
-      addChatMessage(m.from, m.text);
+      addChatMessage(m);
     }
   });
 
   // Chat global (texte libre) : reçu par tous
   socket.on('chat', (m) => {
     const { from, text } = m;
+    // Le serveur filtre déjà à l'émission ; ce garde-fou couvre le message
+    // parti juste avant que le blocage ne lui parvienne.
+    if (m.fromId && bloques.has(m.fromId)) return;
     const k = cleChat(m);
     if (chatVus.has(k)) return;
     chatVus.add(k);
     if ($('modal-chat').classList.contains('hidden') && from !== state.name) {
       unreadChat++; updateChatBadge();
     }
-    addChatMessage(from, text);
+    addChatMessage(m);
     const log = $('chat-log');
     const b = document.createElement('div');
     b.className = 'chat-bubble';
@@ -428,17 +477,76 @@
     setTimeout(() => { b.style.opacity = '0'; b.style.transition = 'opacity .4s'; setTimeout(() => b.remove(), 420); }, 6000);
   });
 
-  // Historique du chat dans la modale (persiste le temps de la session)
-  function addChatMessage(from, text) {
+  // Historique du chat dans la modale (persiste le temps de la session).
+  // Chaque message d'un autre joueur porte ses deux recours : signaler, qui
+  // prévient l'exploitant sans rien dire à l'auteur, et bloquer, qui coupe la
+  // source. Ils sont sur le message lui-même — au moment où on lit la chose
+  // qui dérange — et pas dans un menu de réglages qu'on n'ouvrira jamais.
+  function addChatMessage(m) {
     const box = $('chat-messages');
     if (!box) return;
     const empty = box.querySelector('.chat-empty');
     if (empty) empty.remove();
     const line = document.createElement('div');
     line.className = 'chat-msg';
-    line.innerHTML = '<span class="cm-from">' + escapeHtml(from) + '</span>' + escapeHtml(text);
+    if (m.fromId) line.dataset.from = m.fromId; // pour retirer d'un coup les messages d'un joueur bloqué
+    const tete = document.createElement('span');
+    tete.className = 'cm-from';
+    tete.textContent = m.from;
+    line.appendChild(tete);
+    line.appendChild(document.createTextNode(m.text));
+
+    // Pas de recours contre soi-même, ni sur un fil rejoué sans identifiants
+    // (anciens messages d'une salle lancée avant cette version).
+    if (m.id && m.fromId && m.from !== state.name) {
+      const outils = document.createElement('span');
+      outils.className = 'cm-outils';
+
+      const signaler = document.createElement('button');
+      signaler.type = 'button';
+      signaler.className = 'cm-act';
+      signaler.textContent = 'SIGNALER';
+      signaler.setAttribute('aria-label', 'Signaler le message de ' + m.from);
+      signaler.onclick = () => {
+        socket.emit('chat:report', { id: m.id }, (res) => {
+          signaler.disabled = true;
+          signaler.textContent = 'SIGNALÉ';
+          toast(res && res.ok ? 'Message signalé.' : 'Signalement impossible.', '', 2500);
+        });
+      };
+
+      const bloquer = document.createElement('button');
+      bloquer.type = 'button';
+      bloquer.className = 'cm-act';
+      bloquer.textContent = 'BLOQUER';
+      bloquer.setAttribute('aria-label', 'Bloquer ' + m.from);
+      bloquer.onclick = () => {
+        socket.emit('chat:block', { playerId: m.fromId, bloquer: true }, (res) => {
+          if (!res || !res.ok) return toast('Blocage impossible.', '', 2500);
+          bloques.add(m.fromId);
+          purgerBloques();
+          toast(m.from + ' est bloqué. Tu ne verras plus ses messages.', '', 3500);
+        });
+      };
+
+      outils.appendChild(signaler);
+      outils.appendChild(bloquer);
+      line.appendChild(outils);
+    }
     box.appendChild(line);
     box.scrollTop = box.scrollHeight;
+  }
+
+  // Le serveur cesse d'envoyer les messages d'un joueur bloqué, mais ceux déjà
+  // affichés resteraient à l'écran : bloquer doit faire disparaître, pas
+  // seulement faire taire.
+  const bloques = new Set();
+  function purgerBloques() {
+    const box = $('chat-messages');
+    if (!box) return;
+    for (const el of [...box.querySelectorAll('.chat-msg')]) {
+      if (el.dataset.from && bloques.has(el.dataset.from)) el.remove();
+    }
   }
 
   function escapeHtml(s) { return (s || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
@@ -1284,7 +1392,7 @@
     const name = ($('input-name').value || '').trim();
     if (!name) { homeError('ENTRE UN IDENTIFIANT'); $('input-name').focus(); return; }
     homeError('');
-    socket.emit('createRoom', { name }, withTimeout($('btn-create'), '[ CRÉATION… ]', (res) => {
+    socket.emit('createRoom', { name, deviceId }, withTimeout($('btn-create'), '[ CRÉATION… ]', (res) => {
       if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
@@ -1299,7 +1407,7 @@
     if (!code) { homeError('ENTRE LE CODE, OU APPUIE SUR CRÉER UNE PARTIE'); $('input-code').focus(); return; }
     if (code.length !== 5) { homeError('LE CODE FAIT 5 CARACTÈRES'); $('input-code').focus(); return; }
     homeError('');
-    socket.emit('joinRoom', { code, name }, withTimeout($('btn-join'), '[ CONNEXION… ]', (res) => {
+    socket.emit('joinRoom', { code, name, deviceId }, withTimeout($('btn-join'), '[ CONNEXION… ]', (res) => {
       if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();

@@ -386,6 +386,12 @@ body.kb-typing .launch-bar { display: none; }
 .leaflet-control-attribution { background: rgba(10,19,48,.88) !important; color: var(--ink-dim) !important; font-size: 11px; padding: 2px 6px !important; }
 .leaflet-control-attribution a { color: var(--elec) !important; }
 .leaflet-control-zoom { display: none; }
+/* Fond de secours : OpenStreetMap est un fond CLAIR, et le HUD entier (traits
+   phosphore, marqueurs, zone) est calibré pour du sombre — tel quel, le repli
+   éblouit de nuit et rend les marqueurs illisibles. On l'inverse pour retomber
+   sur un rendu sombre : moins beau que CARTO, mais jouable, ce qui est tout ce
+   qu'on demande à un plan de secours. */
+.tuiles-secours { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.55); }
 
 /* Pile haute : incrustation de retransmission, puis instruments, puis alertes.
    Tout en flux : rien ne peut recouvrir autre chose. */
@@ -789,12 +795,34 @@ body.kb-typing .launch-bar { display: none; }
 .rl-sec b.c-danger { color: var(--red); }
 
 .chat-card { max-width: 430px; }
-.chat-messages { height: 240px; overflow-y: auto; overscroll-behavior: contain; background: rgba(0,0,0,.34); padding: 10px; display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.chat-messages { height: 240px; overflow-y: auto; overscroll-behavior: contain; background: rgba(0,0,0,.34); padding: 10px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .chat-messages::-webkit-scrollbar { width: 6px; }
 .chat-messages::-webkit-scrollbar-thumb { background: var(--line); }
 .chat-msg { font-size: 13px; line-height: 1.45; word-break: break-word; color: var(--ink); }
 .chat-msg .cm-from { color: var(--lime); font-weight: 900; margin-right: 6px; }
 .chat-empty { color: var(--ink-dim); font-size: 12px; text-align: center; margin: auto 0; }
+/* Recours de modération. Discrets par défaut — ce fil sert à jouer, pas à
+   surveiller — mais toujours présents, jamais repliés derrière un appui long :
+   une action qu'on ne trouve pas n'existe pas au moment où on en a besoin.
+   Cible tactile de 28 px, utilisable en courant et d'une seule main. */
+.chat-msg .cm-outils { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.cm-act {
+  font: 700 10px/1 var(--disp); letter-spacing: .06em;
+  color: var(--ink-dim); background: transparent;
+  border: 1px solid var(--line); border-radius: 2px;
+  padding: 0 8px; min-height: 28px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.cm-act:hover, .cm-act:focus-visible { color: var(--amber); border-color: var(--amber); }
+.cm-act:disabled { opacity: .45; cursor: default; }
+/* La zone tactile déborde le trait sans déplacer quoi que ce soit autour :
+   28 px visibles + 8 px de débord au-dessus et au-dessous = les 44 px d'une
+   cible tactile correcte, sans grossir un bouton secondaire au point qu'il
+   concurrence le fil qu'il accompagne. L'écart entre messages passe à 12 px
+   pour que deux zones voisines ne se chevauchent pas. */
+.cm-act::after { content: ''; position: absolute; inset: -8px -6px; }
+.cm-act { position: relative; }
+.chat-note { color: var(--ink-dim); font-size: 11px; line-height: 1.4; margin-top: 8px; }
 .chat-form { display: flex; gap: 8px; margin-bottom: 8px; }
 .chat-form input { flex: 1; }
 .chat-form .btn { margin: 0; white-space: nowrap; }

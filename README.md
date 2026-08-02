@@ -91,6 +91,7 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
 traque/
 ├── server.js          Express + Socket.io, boucle de jeu (tick 1.5 s)
 ├── game.js            Moteur : Room, rôles, zone battle royale, visibilité asymétrique
+├── telemetrie.js      Compteurs d'usage et remontée d'erreurs (en RAM, sans BDD)
 ├── package.json
 ├── render.yaml        Blueprint de déploiement Render
 ├── tests/
@@ -108,6 +109,41 @@ traque/
     ├── sw.js          Service worker (coquille PWA, jamais la logique de partie)
     └── icons/
 ```
+
+---
+
+## Exploitation
+
+**`GET /stats`** — le tableau de bord. Des nombres, jamais des personnes :
+parties créées, lancées, terminées, durée moyenne, et surtout **`revenus`** =
+appareils déjà vus un autre jour. C'est le seul chiffre qui dit si les gens
+rejouent, donc le seul qui décide s'il faut investir dans une publication sur
+les magasins d'applications. Les 40 dernières erreurs et signalements y figurent
+aussi. Définir `ADMIN_KEY` sur l'hébergeur ferme l'accès (`/stats?key=…`).
+
+Tout vit en RAM : **un redéploiement remet les compteurs à zéro.** Un résumé de
+la veille est écrit dans les journaux à chaque bascule de jour — les journaux,
+eux, survivent au redéploiement.
+
+**`POST /client-error`** — les plantages des téléphones remontent ici et
+apparaissent dans les journaux du serveur. Avant, un bug chez un joueur ne se
+signalait à personne : il fermait l'application, et c'était tout.
+
+**Modération du chat** — filtrage des insultes à l'émission, signalement d'un
+message (visible dans les journaux, jamais notifié à l'auteur) et blocage d'un
+joueur. Le blocage est appliqué **à l'émission**, pas à l'affichage : un message
+bloqué n'atteint jamais l'appareil, historique de reconnexion compris.
+
+**Fond de carte** — le fond sombre vient des serveurs publics de CARTO, sans
+contrat. Au-delà de huit tuiles en échec, le client bascule seul sur
+OpenStreetMap (assombri par filtre CSS) : une panne de fournisseur ne doit pas
+ressembler à une panne de jeu. Définir `window.TRAQUE_TILES` remplace le
+fournisseur principal sans toucher au code.
+
+**Mise en veille** — le service se ping lui-même entre 9 h et 1 h (heure de
+Paris), et à toute heure tant qu'une partie tourne. Rester chaud 24 h/24
+consommerait 744 des 750 heures gratuites mensuelles ; cette fenêtre en
+consomme ~496.
 
 ---
 

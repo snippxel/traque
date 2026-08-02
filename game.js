@@ -31,6 +31,75 @@ const HUNTER_RATIO = 0.25; // ~25% de chasseurs en répartition aléatoire
 
 const CHAT_MAX_LEN = 200; // longueur max d'un message de chat global
 
+// ----------------------------------------------------------------------------
+// Modération du chat
+// ----------------------------------------------------------------------------
+// Entre amis, un chat en texte libre ne pose aucun problème. Ouvert au public
+// il en pose trois d'un coup : Apple refuse une application à contenu libre
+// sans filtrage, signalement ni blocage (règle 1.2), le public visé est jeune,
+// et l'hôte d'une partie n'a aucun moyen d'arbitrer en courant.
+//
+// Ce filtre n'est pas un pare-feu — aucune liste ne l'est, et quelqu'un de
+// déterminé la contournera. Il fait la seule chose utile : empêcher l'insulte
+// jetée sans réfléchir d'atteindre l'écran des autres. Le signalement et le
+// blocage couvrent le reste, parce qu'eux ne dépendent pas d'une liste.
+const INSULTES = [
+  'connard', 'connasse', 'conne', 'con', 'salope', 'salaud', 'pute', 'putain',
+  'encule', 'enfoire', 'batard', 'merde', 'abruti', 'cretin', 'debile',
+  'pouffiasse', 'tapette', 'pd', 'fdp', 'ntm', 'nique', 'niquer', 'gogol',
+  'bougnoule', 'negre', 'pede', 'tarlouze', 'youpin', 'bicot', 'chinetoque',
+  'fuck', 'fucking', 'shit', 'bitch', 'asshole', 'cunt', 'nigger', 'faggot',
+  'whore', 'motherfucker',
+];
+const PHRASES = ['ta gueule', 'nique ta mere', 'fils de pute', 'va te faire'];
+
+// « P u T @ 1 n » et « puuutain » doivent tomber sur le même mot que « putain ».
+// On rabat donc les accents, les chiffres qui miment des lettres et les
+// répétitions avant de comparer — des deux côtés, liste comprise.
+function normaliser(s) {
+  return String(s || '')
+    .toLowerCase()
+    // Plage des diacritiques combinants, en échappement : écrits en clair ils
+    // sont invisibles dans un éditeur et un copier-coller les perd en silence.
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[0@]/g, 'o').replace(/[1!|]/g, 'i').replace(/3/g, 'e')
+    .replace(/4/g, 'a').replace(/[5$]/g, 's').replace(/7/g, 't')
+    .replace(/(.)\1+/g, '$1');
+}
+const INSULTES_N = INSULTES.map(normaliser);
+const PHRASES_N = PHRASES.map((p) => normaliser(p).replace(/\s+/g, ' '));
+
+/**
+ * Censure les insultes d'un message. Renvoie `{ texte, censure }`.
+ *
+ * Les racines courtes (« con », « pd ») ne sont comparées qu'en mot entier :
+ * en sous-chaîne elles emporteraient « second », « concours » ou « rapide ».
+ * Les longues acceptent la sous-chaîne, pour attraper les mots collés.
+ */
+function censurer(texte) {
+  const brut = String(texte || '');
+  let censure = false;
+
+  // Phrases d'abord : elles traversent les espaces, que le découpage en mots
+  // ferait disparaître.
+  const aplat = normaliser(brut).replace(/[^a-z]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (PHRASES_N.some((p) => aplat.includes(p))) censure = true;
+
+  const sortie = brut.replace(/[^\s]+/g, (mot) => {
+    const n = normaliser(mot).replace(/[^a-z]/g, '');
+    if (!n) return mot;
+    const touche = INSULTES_N.some((r) => (r.length <= 4 ? n === r : n.includes(r)));
+    if (!touche) return mot;
+    censure = true;
+    return '█'.repeat(Math.min(mot.length, 12));
+  });
+
+  // Une phrase repérée mais dont aucun mot pris isolément n'est une insulte
+  // (« ta gueule ») : on ne laisse pas passer le texte d'origine pour autant.
+  if (censure && sortie === brut) return { texte: '█'.repeat(Math.min(brut.length, 12)), censure };
+  return { texte: sortie, censure };
+}
+
 // Réglages par défaut d'une partie
 function defaultConfig() {
   return {
@@ -156,6 +225,11 @@ class Room {
       outOfZoneSince: null,
       radarUsesLeft: RADAR_USES, // radars restants pour ce chasseur
       lastPosForDistance: null,
+      // Modération : les joueurs que CELUI-CI a bloqués. Le filtrage est fait à
+      // l'émission côté serveur, pas à l'affichage : un message bloqué ne doit
+      // pas atteindre l'appareil, sinon « bloquer » n'est qu'un rideau tiré
+      // devant une fenêtre ouverte.
+      blocked: new Set(),
     };
     this.players.set(id, player);
     if (!this.hostId) this.hostId = id;
@@ -751,4 +825,5 @@ module.exports = {
   ZONE_TOLERANCE_MAX_M,
   MOVE_MIN_M,
   haversine,
+  censurer,
 };

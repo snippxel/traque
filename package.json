@@ -25,7 +25,8 @@
     "test:zonealert": "node tests/zonealert.test.js",
     "test:chatresume": "node tests/chatresume.test.js",
     "test:rooms": "node tests/rooms.test.js",
-    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/zonealert.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/chatresume.test.js && node tests/ready.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js && node tests/rooms.test.js"
+    "test:moderation": "node tests/moderation.test.js",
+    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/zonealert.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/chatresume.test.js && node tests/ready.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js && node tests/rooms.test.js && node tests/moderation.test.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

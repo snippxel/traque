@@ -17,7 +17,10 @@ const {
   RECONNECT_GRACE_PLAYING_MS,
   FLASH_MS,
   ZONE_TOLERANCE_MAX_M,
+  censurer,
 } = require('./game');
+const { randomUUID } = require('crypto');
+const tele = require('./telemetrie');
 
 const app = express();
 const server = http.createServer(app);
@@ -53,6 +56,31 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: gm.rooms.size }));
 
+// Remontée des plantages côté téléphone. Corps minuscule et volontairement
+// plafonné : ce point d'entrée est public, il ne doit pouvoir ni saturer la
+// mémoire ni servir de mégaphone. Il ne reçoit que ce qu'il faut pour
+// reproduire — jamais de position, jamais de nom de joueur.
+app.post('/client-error', express.json({ limit: '4kb' }), (req, res) => {
+  const b = req.body || {};
+  tele.noteErreur({
+    source: 'client',
+    message: b.message,
+    ou: b.ou,
+    code: b.code,
+    appareil: String(req.get('user-agent') || '').slice(0, 160),
+  });
+  res.status(204).end();
+});
+
+// Le tableau de bord : des nombres, pas des personnes. Ouvert par défaut pour
+// être consultable depuis un téléphone en trente secondes ; définir ADMIN_KEY
+// sur l'hébergeur le referme sans rien changer d'autre.
+app.get('/stats', (req, res) => {
+  const cle = process.env.ADMIN_KEY;
+  if (cle && req.query.key !== cle) return res.status(404).end();
+  res.json(tele.resume());
+});
+
 const gm = new GameManager();
 
 // Plafonds de la salle des machines. Voir le handler `createRoom` pour le pourquoi.
@@ -69,9 +97,15 @@ const socketIndex = new Map();
 // se rattrapait déjà tout seul au tick suivant ; le chat, lui, ne se rattrapait
 // jamais — un joueur qui perdait le réseau ne voyait plus jamais ce qui avait
 // été dit pendant sa coupure.
-function sendChatHistory(socket, room) {
+function sendChatHistory(socket, room, player) {
   if (!room.chat || !room.chat.length) return;
-  io.to(socket.id).emit('chat:history', room.chat);
+  // Un blocage vaut aussi pour le rejeu : sinon la moindre reconnexion
+  // ressert au joueur tout ce qu'il avait justement choisi de ne plus voir.
+  const bloques = player && player.blocked;
+  const fil = bloques && bloques.size
+    ? room.chat.filter((m) => !bloques.has(m.fromId))
+    : room.chat;
+  if (fil.length) io.to(socket.id).emit('chat:history', fil);
 }
 
 function emitStateToRoom(room) {
@@ -127,6 +161,13 @@ setInterval(() => {
 
       if (room.status === 'playing') {
         tickGame(room, now);
+      }
+      // Une partie peut se terminer dans tickGame comme au scan d'un QR : on
+      // constate la bascule ici plutôt que d'aller poser un compteur dans
+      // chacun des chemins qui peuvent conclure une partie.
+      if (room.status === 'ended' && !room.statTerminee) {
+        room.statTerminee = true;
+        tele.partieTerminee(room.startTime ? Date.now() - room.startTime : 0);
       }
       // Diffusion groupée : un seul envoi d'état par tick, quel que soit le statut
       emitStateToRoom(room);
@@ -241,7 +282,7 @@ function flashHunters(room, hider) {
 // ----------------------------------------------------------------------------
 io.on('connection', (socket) => {
   // --- Création de partie ---
-  socket.on('createRoom', ({ name } = {}, cb) => {
+  socket.on('createRoom', ({ name, deviceId } = {}, cb) => {
     // Seul point d'entrée qui alloue de la mémoire sans qu'on ait rien à
     // prouver : pas de compte, pas d'auth, un lien de partage public. N'importe
     // qui peut ouvrir un socket et boucler.
@@ -263,13 +304,16 @@ io.on('connection', (socket) => {
     const player = room.addPlayer(name);
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
+    tele.partieCreee();
+    tele.appareilVu(deviceId);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
-    sendChatHistory(socket, room);
+    sendChatHistory(socket, room, player);
     emitStateToRoom(room);
   });
 
   // --- Rejoindre une partie (ou REPRENDRE sa place avec le code) ---
-  socket.on('joinRoom', ({ code, name } = {}, cb) => {
+  socket.on('joinRoom', ({ code, name, deviceId } = {}, cb) => {
+    tele.appareilVu(deviceId);
     const room = gm.getRoom(code);
     if (!room) return ack(cb, { ok: false, error: 'Aucune partie avec ce code.' });
     if (room.status === 'ended') return ack(cb, { ok: false, error: 'Cette partie est terminée.' });
@@ -300,7 +344,7 @@ io.on('connection', (socket) => {
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
-    sendChatHistory(socket, room);
+    sendChatHistory(socket, room, player);
     emitStateToRoom(room);
   });
 
@@ -315,7 +359,7 @@ io.on('connection', (socket) => {
     player.disconnectAt = null;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
-    sendChatHistory(socket, room);
+    sendChatHistory(socket, room, player);
     emitStateToRoom(room);
   });
 
@@ -347,6 +391,8 @@ io.on('connection', (socket) => {
     if (!safetyChecked) return ack(cb, { ok: false, error: 'Coche la case de sécurité.' });
     const res = room.start(player.pos);
     if (!res.ok) return ack(cb, { ok: false, error: res.error });
+    room.statTerminee = false; // « Rejouer » relance la même salle : nouvelle partie, nouveau décompte
+    tele.partieLancee();
     ack(cb, { ok: true });
     emitStateToRoom(room);
   });
@@ -440,14 +486,48 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (now - (player.lastChatAt || 0) < 600) return;
     player.lastChatAt = now;
-    const payload = { from: player.name, text: msg, at: now };
+    const { texte } = censurer(msg);
+    // `id` et `fromId` ne sont pas décoratifs : sans eux on ne peut ni désigner
+    // un message à signaler, ni savoir qui bloquer.
+    const payload = { id: randomUUID().slice(0, 12), fromId: player.id, from: player.name, text: texte, at: now };
     // On archive AVANT de diffuser : un joueur hors réseau à cet instant ne
     // recevra rien, mais retrouvera le message à sa reconnexion.
     room.addChat(payload);
-    // Chat GLOBAL : diffusé à tous les joueurs connectés de la salle
+    // Chat GLOBAL : diffusé à tous les joueurs connectés de la salle, sauf à
+    // ceux qui ont bloqué l'auteur — le filtrage est fait ICI, à l'émission :
+    // un message écarté à l'affichage serait quand même arrivé sur l'appareil.
     for (const p of room.players.values()) {
-      if (p.connected && p.socketId) io.to(p.socketId).emit('chat', payload);
+      if (!p.connected || !p.socketId) continue;
+      if (p.blocked && p.blocked.has(player.id)) continue;
+      io.to(p.socketId).emit('chat', payload);
     }
+  });
+
+  // --- Signaler un message ---
+  // Apple demande de pouvoir agir sous 24 h (règle 1.2). Le signalement part
+  // donc dans les journaux du serveur, là où on le verra, et l'auteur n'en est
+  // jamais informé : prévenir un harceleur qu'il a été signalé le renseigne.
+  socket.on('chat:report', ({ id } = {}, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx) return ack(cb, { ok: false });
+    const { room, player } = ctx;
+    const msg = (room.chat || []).find((m) => m.id === id);
+    if (!msg) return ack(cb, { ok: false, error: 'Message introuvable.' });
+    tele.noteSignalement({ code: room.code, auteur: msg.from, texte: msg.text, par: player.name });
+    ack(cb, { ok: true });
+  });
+
+  // --- Bloquer / débloquer un joueur ---
+  socket.on('chat:block', ({ playerId, bloquer } = {}, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx) return ack(cb, { ok: false });
+    const { room, player } = ctx;
+    if (!playerId || playerId === player.id) return ack(cb, { ok: false });
+    const cible = room.players.get(playerId);
+    if (!cible) return ack(cb, { ok: false, error: 'Joueur introuvable.' });
+    if (bloquer === false) player.blocked.delete(playerId);
+    else player.blocked.add(playerId);
+    ack(cb, { ok: true, bloques: [...player.blocked] });
   });
 
   // --- Quitter volontairement ---
@@ -524,9 +604,11 @@ function ack(cb, data) {
 // bizarre) ne doit donc pas tuer le serveur : on log et on continue.
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException] partie préservée, on continue :', err);
+  tele.noteErreur({ source: 'serveur', message: err && err.message, ou: err && err.stack });
 });
 process.on('unhandledRejection', (err) => {
   console.error('[unhandledRejection]', err);
+  tele.noteErreur({ source: 'serveur-promesse', message: err && err.message, ou: err && err.stack });
 });
 
 // Anti-mise en veille (Render tier gratuit) : le service s'endort après ~15 min
@@ -548,16 +630,8 @@ process.on('unhandledRejection', (err) => {
 const SELF_URL = process.env.RENDER_EXTERNAL_URL;
 const KEEPALIVE_MS = 10 * 60 * 1000; // < 15 min : la fenêtre avant mise en veille
 const EVEIL_DEBUT = 9, EVEIL_FIN = 1; // 9 h → 1 h du matin, heure de Paris
-// `format()` en fr-FR rend « 09 h », dont Number() ne tire que NaN — le service
-// ne se serait jamais réveillé. On lit la partie `hour` plutôt que la chaîne.
-const heureParis = new Intl.DateTimeFormat('fr-FR', {
-  timeZone: 'Europe/Paris', hour: '2-digit', hourCycle: 'h23',
-});
-function heureLocale(d = new Date()) {
-  return Number(heureParis.formatToParts(d).find((p) => p.type === 'hour').value);
-}
 function enHeuresDeJeu() {
-  const h = heureLocale();
+  const h = tele.heureParis();
   // Fenêtre à cheval sur minuit : l'intervalle est l'union, pas l'intersection.
   return EVEIL_DEBUT <= EVEIL_FIN
     ? (h >= EVEIL_DEBUT && h < EVEIL_FIN)

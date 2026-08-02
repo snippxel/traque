@@ -23,15 +23,64 @@ window.GameMap = (function () {
   }
   function esc(s) { return (s || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 
+  // --------------------------------------------------------- Fond de carte
+  // Le fond sombre ne nous appartient pas : il vient des serveurs publics de
+  // CARTO, sans contrat ni quota écrit. À dix joueurs personne ne le remarque ;
+  // le jour où le robinet se ferme, la carte devient un rectangle vide et la
+  // partie est injouable — alors que le serveur, lui, va parfaitement bien.
+  // Une panne de fournisseur ne doit pas ressembler à une panne de jeu : on
+  // bascule tout seul sur OpenStreetMap, libre et sans clé, assombri par
+  // filtre CSS pour rester lisible avec le reste de l'interface.
+  const FOND = (typeof window !== 'undefined' && window.TRAQUE_TILES) || {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    subdomains: 'abcd',
+    maxZoom: 20,
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  };
+  const SECOURS = {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap',
+  };
+  // Une tuile qui manque en bord de zone est banale ; c'est la rafale qui
+  // signe la panne. On bascule au-delà du seuil, une seule fois par session.
+  const SEUIL_ECHECS = 8;
+  let secoursActif = false;
+
+  function poseFond(cible, principal) {
+    const src = principal ? FOND : SECOURS;
+    const couche = L.tileLayer(src.url, {
+      subdomains: src.subdomains || 'abc',
+      maxZoom: src.maxZoom || 19,
+      attribution: src.attribution || '',
+      className: principal ? '' : 'tuiles-secours',
+    });
+    if (principal) {
+      let echecs = 0;
+      couche.on('tileerror', () => {
+        if (secoursActif || ++echecs < SEUIL_ECHECS) return;
+        secoursActif = true;
+        console.warn('[carte] fond principal injoignable — bascule sur OpenStreetMap');
+        for (const m of cartes) {
+          m.eachLayer((l) => { if (l instanceof L.TileLayer) m.removeLayer(l); });
+          poseFond(m, false);
+        }
+      });
+    }
+    couche.addTo(cible);
+    return couche;
+  }
+
+  // Toutes les cartes vivantes, pour que la bascule les rattrape ensemble : la
+  // carte de jeu et l'aperçu du lobby partagent le même fournisseur.
+  const cartes = new Set();
+
   function init() {
     if (map) return map;
     map = L.map('map', { zoomControl: false, attributionControl: true, tap: true });
     map.setView([48.8566, 2.3522], 16);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd',
-      maxZoom: 20,
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-    }).addTo(map);
+    cartes.add(map);
+    poseFond(map, !secoursActif);
     // Dès que le joueur déplace ou zoome lui-même, le recadrage automatique
     // cesse : rien n'est plus agaçant qu'une carte qui reprend la main.
     map.on('dragstart', () => { userMoved = true; });
@@ -355,7 +404,8 @@ window.GameMap = (function () {
     if (pMap) return pMap;
     pMap = L.map('lobby-map', { zoomControl: false, attributionControl: false, dragging: true, tap: true });
     pMap.setView([48.8566, 2.3522], 15);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 }).addTo(pMap);
+    cartes.add(pMap);
+    poseFond(pMap, !secoursActif);
     return pMap;
   }
   function previewUpdate(pos, radius) {
