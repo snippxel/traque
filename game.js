@@ -29,6 +29,21 @@ const RADAR_REVEAL_MS = 60 * 1000; // la position révélée reste visible 1 min
 const COUNTER_REVEAL_MS = 30 * 1000; // le caché repéré voit le chasseur 30 s
 const HUNTER_RATIO = 0.25; // ~25% de chasseurs en répartition aléatoire
 
+// Âge d'une position. Le serveur gardait la dernière position INDÉFINIMENT et
+// la traitait comme fraîche : un caché dont le téléphone dormait dans une poche
+// devenait invisible au radar (déconnecté = ignoré), apparaissait aux chasseurs
+// à un endroit quitté depuis dix minutes, et pouvait être converti hors-zone
+// sur une position figée alors qu'il était revenu dedans.
+const POS_STALE_MS = 45 * 1000;     // au-delà : signal perdu, conversion hors-zone suspendue
+const POS_LOST_MAX_MS = 120 * 1000; // au-delà : plus de pause (sinon couper le GPS rendrait intouchable)
+// Salon : un joueur qui verrouille son téléphone en attendant le lancement ne
+// doit pas perdre sa place au bout de 90 s. On la garde 10 min tant que
+// quelqu'un est encore connecté ; une salle où PLUS PERSONNE n'est connecté
+// reste purgée au bout de RECONNECT_GRACE_MS (protection mémoire inchangée).
+const LOBBY_KEEP_MS = 10 * 60 * 1000;
+const HOST_AWAY_MS = 30 * 1000;     // hôte hors ligne au-delà : l'hôte passe à un joueur connecté
+const ABANDON_MS = 10 * 60 * 1000;  // une équipe entière hors ligne aussi longtemps : partie conclue
+
 const CHAT_MAX_LEN = 200; // longueur max d'un message de chat global
 
 // ----------------------------------------------------------------------------
@@ -202,10 +217,20 @@ class Room {
   }
 
   // --- Gestion des joueurs -------------------------------------------------
-  addPlayer(name) {
+  addPlayer(name, deviceId) {
     const id = randomToken(16);
     const player = {
       id,
+      // DEUX identifiants : c'est le cœur de l'anti-triche. `id` est SECRET : il
+      // suffit à reprendre la session (resume), donc à lire le QR du joueur et
+      // à le faire éliminer à distance. Il était pourtant diffusé à tout le
+      // monde — liste du salon, chaque message de chat, signaux, coéquipiers.
+      // `pid` est l'identifiant PUBLIC : le seul qui sort du serveur pour
+      // désigner quelqu'un d'autre que soi.
+      pid: randomToken(10),
+      // Appareil d'origine : rend une place perdue SANS validation de l'hôte
+      // quand c'est le même téléphone qui revient.
+      deviceId: String(deviceId || '').slice(0, 64),
       socketId: null,
       name: (name || 'Joueur').toString().slice(0, 20).trim() || 'Joueur',
       role: 'hider',
@@ -238,6 +263,25 @@ class Room {
 
   isHost(playerId) {
     return this.hostId === playerId;
+  }
+
+  byPid(pid) {
+    if (!pid) return null;
+    for (const p of this.players.values()) if (p.pid === pid) return p;
+    return null;
+  }
+
+  // Retire un joueur (départ volontaire ou exclusion par l'hôte) et toutes les
+  // traces qui le désignent encore.
+  removePlayer(playerId) {
+    this.players.delete(playerId);
+    this.lastReveal.delete(playerId);
+    this.tempReveals = this.tempReveals.filter((r) => r.playerId !== playerId);
+    this.counterReveals = this.counterReveals.filter((r) => r.hiderId !== playerId && r.hunterId !== playerId);
+    if (this.hostId === playerId) {
+      const next = [...this.players.values()].find((p) => p.connected) || [...this.players.values()][0];
+      this.hostId = next ? next.id : null;
+    }
   }
 
   connectedPlayers() {
@@ -312,7 +356,9 @@ class Room {
   assignManual(assignments) {
     // assignments: { playerId: 'hunter' | 'hider' }
     for (const [id, role] of Object.entries(assignments || {})) {
-      const p = this.players.get(id);
+      // L'interface désigne les joueurs par leur identifiant PUBLIC ; l'ancien
+      // identifiant reste accepté (seul l'hôte peut appeler ceci).
+      const p = this.players.get(id) || this.byPid(id);
       if (p && (role === 'hunter' || role === 'hider')) p.role = role;
     }
     this.roleMode = 'manual';
@@ -430,7 +476,9 @@ class Room {
     const now = Date.now();
     for (const p of this.players.values()) {
       if (p.role === 'hider' && p.pos) {
-        this.lastReveal.set(p.id, { lat: p.pos.lat, lng: p.pos.lng, time: now });
+        // `time` = heure du DERNIER POINT GPS, pas de la révélation : une
+        // position figée depuis 8 min doit s'afficher « 8 min », pas « 0 min ».
+        this.lastReveal.set(p.id, { lat: p.pos.lat, lng: p.pos.lng, time: p.pos.time || now });
       }
     }
   }
@@ -493,8 +541,11 @@ class Room {
     if (this.inDispersion()) return { ok: false, error: 'Attends la fin de la dispersion.' };
     if (hunter.radarUsesLeft <= 0) return { ok: false, error: 'Plus de radar disponible.' };
 
+    // Les cachés DÉCONNECTÉS restent ciblables, sur leur dernière position
+    // (datée, donc affichée comme ancienne) : sinon verrouiller son téléphone
+    // rendait invisible au radar — la triche la plus simple du jeu.
     const candidates = [...this.players.values()].filter(
-      (p) => p.role === 'hider' && p.pos && p.connected
+      (p) => p.role === 'hider' && p.pos
     );
     // On ne consomme PAS d'utilisation si le radar n'a rien trouvé : pas de pénalité.
     if (candidates.length === 0) return { ok: false, error: 'Aucun caché localisable pour le moment.' };
@@ -521,6 +572,7 @@ class Room {
       name: target.name,
       lat: target.pos.lat,
       lng: target.pos.lng,
+      time: target.pos.time,
       until: now + RADAR_REVEAL_MS,
       kind: 'radar',
     };
@@ -582,6 +634,8 @@ class Room {
     this.shrinkWarned.clear();
     this.nextRevealAt = null;
     this.result = null;
+    this.noHunterSince = null;
+    this.noHiderSince = null;
     for (const p of this.players.values()) {
       p.role = 'hider';
       p.startRole = null;
@@ -604,13 +658,35 @@ class Room {
     if (startedWithHiders && hiders === 0) {
       return this.finish('hunters');
     }
+
+    // Abandon : une équipe ENTIÈRE hors ligne depuis longtemps. Sans ça, une
+    // partie dont tous les chasseurs sont rentrés chez eux — ou une partie
+    // « dernier survivant », qui n'a pas de fin au temps — ne finissait jamais.
+    const list = [...this.players.values()];
+    const huntersOn = list.some((p) => p.role === 'hunter' && p.connected);
+    const hidersOn = list.some((p) => p.role === 'hider' && p.connected);
+    if (!huntersOn) {
+      if (this.noHunterSince == null) this.noHunterSince = now;
+      if (now - this.noHunterSince >= ABANDON_MS) return this.finish('hiders', 'abandon');
+    } else this.noHunterSince = null;
+    if (hiders > 0 && !hidersOn) {
+      if (this.noHiderSince == null) this.noHiderSince = now;
+      if (now - this.noHiderSince >= ABANDON_MS) return this.finish('hunters', 'abandon');
+    } else this.noHiderSince = null;
     if (!this.config.lastSurvivor && now >= this.endTime) {
       return this.finish(hiders > 0 ? 'hiders' : 'hunters');
     }
     return null;
   }
 
-  finish(winner) {
+  // L'hôte arrête la partie : victoire à qui la mérite à cet instant.
+  endByHost() {
+    if (this.status !== 'playing') return null;
+    const { hiders } = this.counts();
+    return this.finish(hiders > 0 ? 'hiders' : 'hunters', 'host');
+  }
+
+  finish(winner, reason) {
     if (this.status === 'ended') return this.result;
     this.status = 'ended';
     const end = Date.now();
@@ -621,6 +697,7 @@ class Room {
       }
       return {
         name: p.name,
+        pid: p.pid,
         startRole: p.startRole || p.role,
         finalRole: p.role,
         survivedMs,
@@ -636,7 +713,7 @@ class Room {
       if (bv !== av) return bv - av;
       return b.captures - a.captures;
     });
-    this.result = { winner, stats, endTime: end };
+    this.result = { winner, reason: reason || null, stats, endTime: end };
     return this.result;
   }
 
@@ -650,8 +727,13 @@ class Room {
       code: this.code,
       status: this.status,
       isHost: this.hostId === playerId,
+      // Heure du serveur : le client en déduit le décalage de sa propre horloge.
+      // Tous les comptes à rebours (hors-zone, dispersion, rétrécissement...)
+      // comparaient des heures serveur à l'heure du téléphone.
+      serverNow: now,
       you: {
         id: me.id,
+        pid: me.pid,
         name: me.name,
         role: me.role,
         qrToken: me.qrToken,
@@ -675,7 +757,7 @@ class Room {
       base.roleMode = this.roleMode;
       base.config = this.config;
       base.roster = [...this.players.values()].map((p) => ({
-        id: p.id,
+        id: p.pid, // identifiant PUBLIC — jamais l'identifiant de session
         name: p.name,
         role: p.role,
         connected: p.connected,
@@ -719,10 +801,14 @@ class Room {
     // Aucune coordonnée ici — la visibilité asymétrique reste entièrement gérée
     // par teammates/signals/reveals plus bas.
     base.roster = [...this.players.values()].map((p) => ({
+      id: p.pid,
       name: p.name,
       role: p.role,
       connected: p.connected,
+      // Signal perdu : hors ligne, ou plus aucun point GPS depuis 45 s.
+      lost: !p.connected || !p.pos || now - (p.pos.time || 0) > POS_STALE_MS,
       isMe: p.id === me.id,
+      isHost: p.id === this.hostId,
     }));
 
     // Coéquipiers en temps réel (même rôle que moi)
@@ -730,7 +816,7 @@ class Room {
     for (const p of this.players.values()) {
       if (p.id === me.id) continue;
       if (p.role === me.role && p.pos) {
-        teammates.push({ id: p.id, name: p.name, lat: p.pos.lat, lng: p.pos.lng, connected: p.connected });
+        teammates.push({ id: p.pid, name: p.name, lat: p.pos.lat, lng: p.pos.lng, connected: p.connected, time: p.pos.time });
       }
     }
     base.teammates = teammates;
@@ -742,7 +828,7 @@ class Room {
         base.signals = [];
         base.reveals = [...this.players.values()]
           .filter((p) => p.role === 'hider' && p.pos)
-          .map((p) => ({ name: p.name, lat: p.pos.lat, lng: p.pos.lng, until: this.startRevealEndsAt, kind: 'start' }));
+          .map((p) => ({ name: p.name, lat: p.pos.lat, lng: p.pos.lng, time: p.pos.time, until: this.startRevealEndsAt, kind: 'start' }));
       } else {
         // Révélations exactes en cours (radar + sorties de zone)
         const activeReveals = this.tempReveals.filter((r) => r.until > now);
@@ -754,7 +840,7 @@ class Room {
           if (revealedIds.has(hiderId)) continue;
           const h = this.players.get(hiderId);
           if (h && h.role === 'hider') {
-            signals.push({ id: hiderId, name: h.name, lat: rev.lat, lng: rev.lng, time: rev.time });
+            signals.push({ id: h.pid, name: h.name, lat: rev.lat, lng: rev.lng, time: rev.time });
           }
         }
         base.signals = signals;
@@ -763,8 +849,8 @@ class Room {
           .map((r) => ({ r, p: this.players.get(r.playerId) }))
           .filter(({ p }) => p && p.role === 'hider')
           .map(({ r, p }) => {
-            const pos = p.pos || { lat: r.lat, lng: r.lng };
-            return { name: r.name, lat: pos.lat, lng: pos.lng, until: r.until, kind: r.kind };
+            const pos = p.pos || { lat: r.lat, lng: r.lng, time: r.time };
+            return { name: r.name, lat: pos.lat, lng: pos.lng, time: pos.time, until: r.until, kind: r.kind };
           });
       }
     } else {
@@ -774,7 +860,7 @@ class Room {
       for (const cr of this.counterReveals) {
         if (cr.hiderId === me.id && cr.until > now) {
           const h = this.players.get(cr.hunterId);
-          if (h && h.pos) spotted.push({ name: h.name, lat: h.pos.lat, lng: h.pos.lng, until: cr.until });
+          if (h && h.pos) spotted.push({ name: h.name, lat: h.pos.lat, lng: h.pos.lng, time: h.pos.time, until: cr.until });
         }
       }
       if (spotted.length) base.spotted = spotted;
@@ -823,6 +909,10 @@ module.exports = {
   COUNTER_REVEAL_MS,
   ACCURACY_MAX_M,
   ZONE_TOLERANCE_MAX_M,
+  POS_STALE_MS,
+  POS_LOST_MAX_MS,
+  LOBBY_KEEP_MS,
+  HOST_AWAY_MS,
   MOVE_MIN_M,
   haversine,
   censurer,

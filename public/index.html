@@ -306,6 +306,13 @@
            d'actions : celle-ci se vise au pouce en courant et n'a de place que
            pour ce qui se fait en courant. Relire une règle, non. -->
       <button id="btn-rules-game" type="button" class="pp-rules">RÈGLES DU JEU</button>
+      <!-- Options d'appareil, mémorisées sur ce téléphone -->
+      <div class="pp-options">
+        <button id="opt-voice" type="button" class="pp-opt" aria-pressed="false">ANNONCES VOCALES : NON</button>
+        <button id="opt-sun" type="button" class="pp-opt" aria-pressed="false">MODE PLEIN SOLEIL : NON</button>
+      </div>
+      <!-- Hôte seulement : arrêter la partie (joueur fantôme, pluie, fin de soirée) -->
+      <button id="btn-host-end" type="button" class="pp-danger hidden">TERMINER LA PARTIE</button>
     </div>
 
     <!-- Chat rapide -->
@@ -397,6 +404,8 @@
     <div class="end-wrap">
       <div id="end-personal" class="end-personal">—</div>
       <div id="end-banner" class="end-banner">FIN DE PARTIE</div>
+      <div id="end-reason" class="end-reason hidden"></div>
+      <div id="end-badges" class="end-badges"></div>
       <div class="panel bracket">
         <div class="mini-label">DÉBRIEFING</div>
         <div class="table-scroll">
@@ -415,6 +424,7 @@
            Même grammaire que la barre de lancement du salon. -->
       <div class="end-bar">
         <button id="btn-replay" class="btn btn-primary hidden">[ REJOUER — MÊMES JOUEURS ]</button>
+        <button id="btn-share-result" class="btn btn-ghost">[ PARTAGER ]</button>
         <button id="btn-home" class="btn btn-ghost">[ RETOUR ]</button>
       </div>
     </div>

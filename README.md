@@ -25,7 +25,7 @@ par CDN, le client Socket.io est servi par le serveur.
 
 ## Lancer en local
 
-Prérequis : Node.js ≥ 18.
+Prérequis : Node.js ≥ 20 (Render utilise Node 24).
 
 ```bash
 npm install
@@ -76,12 +76,27 @@ Le tier gratuit s'endort après inactivité : le premier chargement peut prendre
      le caché **le plus proche** (position visible **1 min** côté chasseurs). Le caché
      repéré est **alerté** (son + vibration + interface) et **voit la position du
      chasseur pendant 30 s** — un contre-jeu pour savoir d'où fuir.
-   - **Confort** : boussole vers le centre (cachés), Wake Lock, **chat global**
-     (texte libre, visible par tous), badge de précision GPS.
+   - **Confort** : cône d'orientation, Wake Lock, **chat global** (texte libre,
+     visible par tous), badge de précision GPS, bouton de vue « me suivre / toute
+     la zone », **annonces vocales** et **mode plein soleil** (panneau OPÉRATEURS).
+   - **Signal perdu** : une position sans mise à jour depuis 45 s est affichée avec
+     son âge (« · signal 2min »). La conversion hors-zone est suspendue tant que le
+     signal est perdu (2 min au plus), et le délai de grâce repart à zéro au retour.
+     Le radar cible aussi les cachés déconnectés, sur leur dernière position.
 4. **Reconnexion** — refresh ou coupure réseau : le joueur reprend sa place exacte
-   (fenêtre de grâce serveur de 90 s).
-5. **Fin** — victoire chasseurs (tous attrapés) ou cachés (temps écoulé). Tableau de
-   stats : survie, distance parcourue, captures.
+   (30 min en partie ; 10 min en salon tant que quelqu'un est connecté). Reprise
+   par le nom : immédiate depuis le même téléphone, **validée par l'hôte** depuis
+   un autre (anti-usurpation).
+5. **Hôte** — passe la main ou retire un joueur (salon et partie), **termine la
+   partie** en cours. Un hôte hors ligne plus de 30 s cède sa place à un joueur
+   connecté. Une équipe entière hors ligne 10 min conclut la partie.
+6. **Fin** — victoire chasseurs (tous attrapés) ou cachés (temps écoulé). Tableau de
+   stats (survie, distance, captures), badges et partage du résultat.
+
+**Anti-triche** — chaque joueur a deux identifiants : un **secret** (sa session,
+connu de son seul téléphone) et un **public** (le seul qui désigne quelqu'un aux
+autres). Les coordonnées d'un caché ne sont envoyées à un chasseur que lorsqu'il
+est révélé. `tests/anticheat.test.js` rejoue les attaques connues.
 
 ---
 
@@ -152,12 +167,12 @@ consomme ~496.
 
 ## Tests
 
-Quinze suites d'intégration Socket.io pilotent de vraies parties de bout en bout.
+Dix-huit suites d'intégration Socket.io pilotent de vraies parties de bout en bout.
 Elles ont besoin du serveur démarré dans un autre terminal :
 
 ```bash
 npm start          # terminal 1 — laisse tourner
-npm test           # terminal 2 — enchaîne les quinze suites
+npm test           # terminal 2 — enchaîne les dix-huit suites
 ```
 
 Chacune se lance aussi seule (`npm run test:radar`, `test:zone`, `test:rooms`…).

@@ -10,7 +10,6 @@ window.GameMap = (function () {
   let selfMarker = null, accuracyCircle = null;
   let zoneCircle = null, nextZoneCircle = null;
   const markers = new Map(); // id -> Leaflet marker (coéquipiers + signaux)
-  let revealMarkers = []; // marqueurs temporaires (radar / flash)
   let hasCentered = false;
 
   function divIcon(cls, label) {
@@ -87,7 +86,7 @@ window.GameMap = (function () {
     poseFond(map, !secoursActif);
     // Dès que le joueur déplace ou zoome lui-même, le recadrage automatique
     // cesse : rien n'est plus agaçant qu'une carte qui reprend la main.
-    map.on('dragstart', () => { userMoved = true; });
+    map.on('dragstart', () => { userMoved = true; follow = false; });
     map.on('zoomstart', () => { if (!fitting) userMoved = true; });
     return map;
   }
@@ -123,6 +122,9 @@ window.GameMap = (function () {
       accuracyCircle.setRadius(pos.accuracy || 15);
     }
     if (!hasCentered) { map.setView([pos.lat, pos.lng], 17); hasCentered = true; }
+    // Mode « me suivre » : la carte accompagne le joueur. Un glissement du
+    // doigt sur la carte rend la main (voir dragstart dans init).
+    else if (follow) map.panTo([pos.lat, pos.lng], { animate: true, duration: 0.6 });
   }
 
   // Oriente le cône de visée. La carte reste nord en haut : seul le marqueur
@@ -172,12 +174,18 @@ window.GameMap = (function () {
       const key = keyPrefix + item.id;
       seen.add(key);
       const cls = kindClass + (item.role ? ' ' + item.role : '');
+      const sig = cls + '|' + item.name;
       if (markers.has(key)) {
         const m = markers.get(key);
         m.setLatLng([item.lat, item.lng]);
-        m.setIcon(divIcon(cls, item.name));
+        // setIcon reconstruit le DOM du marqueur : le faire à chaque état
+        // (toutes les 1,5 s) cassait le glissement CSS des points et coûtait du
+        // calcul pour rien. Seulement si le libellé ou le style a changé.
+        if (m._traqueSig !== sig) { m.setIcon(divIcon(cls, item.name)); m._traqueSig = sig; }
       } else {
-        markers.set(key, L.marker([item.lat, item.lng], { icon: divIcon(cls, item.name) }).addTo(map));
+        const m = L.marker([item.lat, item.lng], { icon: divIcon(cls, item.name) }).addTo(map);
+        m._traqueSig = sig;
+        markers.set(key, m);
       }
     }
     // Retire les marqueurs disparus pour ce préfixe
@@ -195,24 +203,59 @@ window.GameMap = (function () {
   function clearSignals() { syncMarkers([], 'mk-signal', 'sig:'); }
 
   // Révélations exactes temporaires (radar + sorties de zone) reçues dans l'état
-  function setReveals(list) {
-    revealMarkers.forEach((m) => map.removeLayer(m));
-    revealMarkers = [];
-    for (const r of list) {
-      const m = L.marker([r.lat, r.lng], { icon: divIcon('mk-reveal', r.name), zIndexOffset: 900 }).addTo(map);
-      revealMarkers.push(m);
+  // Ces marqueurs étaient effacés puis recréés à CHAQUE état : l'animation de
+  // pulsation repartait de zéro toutes les 1,5 s et le point sautait au lieu
+  // de glisser. On les met à jour sur place, par clé (le nom du joueur).
+  function syncTemp(store, list, cls, label, z) {
+    const vus = new Set();
+    for (const r of list || []) {
+      const key = r.key || r.name;
+      vus.add(key);
+      const txt = label(r);
+      let m = store.get(key);
+      if (m) {
+        m.setLatLng([r.lat, r.lng]);
+        if (m._traqueSig !== txt) { m.setIcon(divIcon(cls, txt)); m._traqueSig = txt; }
+      } else {
+        m = L.marker([r.lat, r.lng], { icon: divIcon(cls, txt), zIndexOffset: z }).addTo(map);
+        m._traqueSig = txt;
+        store.set(key, m);
+      }
     }
+    for (const [k, m] of store) if (!vus.has(k)) { map.removeLayer(m); store.delete(k); }
+  }
+  // Le libellé affiché peut porter l'âge du signal : la clé, elle, doit rester
+  // le nom seul, sinon le marqueur serait recréé à chaque seconde d'âge.
+  const cleNom = (r) => ({ ...r, key: String(r.name || '').split(' · ')[0] });
+
+  const revealStore = new Map();
+  function setReveals(list) {
+    if (!map) return;
+    syncTemp(revealStore, (list || []).map(cleNom), 'mk-reveal', (r) => r.name, 900);
   }
 
   // Chasseur(s) visibles par un caché repéré au radar (contre-révélation 30 s)
-  let spottedMarkers = [];
+  const spottedStore = new Map();
   function setSpotted(list) {
-    spottedMarkers.forEach((m) => map.removeLayer(m));
-    spottedMarkers = [];
-    for (const h of list || []) {
-      const m = L.marker([h.lat, h.lng], { icon: divIcon('mk-hunter', 'CHASSEUR ' + (h.name || '')), zIndexOffset: 950 }).addTo(map);
-      spottedMarkers.push(m);
+    if (!map) return;
+    syncTemp(spottedStore, list || [], 'mk-hunter', (h) => 'CHASSEUR ' + (h.name || ''), 950);
+  }
+
+  // Vue : « me suivre » ou « toute la zone ». Renvoie le mode adopté.
+  let follow = false;
+  function cycleView(pos) {
+    if (!map) return 'zone';
+    if (!follow && pos) {
+      follow = true;
+      userMoved = true; // le cadrage automatique sur la zone ne reprend pas la main
+      map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 17), { animate: true });
+      return 'follow';
     }
+    follow = false;
+    if (zoneCircle) {
+      try { map.fitBounds(zoneCircle.getBounds().pad(0.08), { animate: true }); } catch (_) {}
+    }
+    return 'zone';
   }
 
   // Lieu où un coéquipier caché s'est fait prendre. Reste plus longtemps que les
@@ -392,8 +435,8 @@ window.GameMap = (function () {
     if (outsideVeil) { map.removeLayer(outsideVeil); outsideVeil = null; }
     for (const m of markers.values()) map.removeLayer(m);
     markers.clear();
-    revealMarkers.forEach((m) => map.removeLayer(m)); revealMarkers = [];
-    spottedMarkers.forEach((m) => map.removeLayer(m)); spottedMarkers = [];
+    for (const store of [revealStore, spottedStore]) { for (const m of store.values()) map.removeLayer(m); store.clear(); }
+    follow = false;
     clearDowns();
     hasCentered = false;
   }
@@ -431,6 +474,6 @@ window.GameMap = (function () {
   return {
     init, setSelf, setHeading, recenter, focus, setTeammates, setSignals, clearSignals,
     setReveals, setSpotted, addDown, clearDowns, pulse, setZone, bearing, reset, invalidate,
-    previewUpdate, previewInvalidate,
+    previewUpdate, previewInvalidate, cycleView,
   };
 })();

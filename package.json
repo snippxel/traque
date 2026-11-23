@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node server.js",
@@ -26,7 +26,9 @@
     "test:chatresume": "node tests/chatresume.test.js",
     "test:rooms": "node tests/rooms.test.js",
     "test:moderation": "node tests/moderation.test.js",
-    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/zonealert.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/chatresume.test.js && node tests/ready.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js && node tests/rooms.test.js && node tests/moderation.test.js"
+    "test": "node tests/bearing.test.js && node tests/flow.test.js && node tests/zone.test.js && node tests/zonealert.test.js && node tests/radar.test.js && node tests/chat.test.js && node tests/chatresume.test.js && node tests/ready.test.js && node tests/config.test.js && node tests/zoneclose.test.js && node tests/start.test.js && node tests/resume.test.js && node tests/rules.test.js && node tests/liveplay.test.js && node tests/rooms.test.js && node tests/moderation.test.js && node tests/anticheat.test.js && node tests/host.test.js",
+    "test:anticheat": "node tests/anticheat.test.js",
+    "test:host": "node tests/host.test.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

@@ -17,6 +17,10 @@ const {
   RECONNECT_GRACE_PLAYING_MS,
   FLASH_MS,
   ZONE_TOLERANCE_MAX_M,
+  POS_STALE_MS,
+  POS_LOST_MAX_MS,
+  LOBBY_KEEP_MS,
+  HOST_AWAY_MS,
   censurer,
 } = require('./game');
 const { randomUUID } = require('crypto');
@@ -139,13 +143,16 @@ setInterval(() => {
       // Nettoyage des joueurs déconnectés au-delà de la fenêtre de grâce.
       // En pleine partie la fenêtre est très longue : on préfère garder la place
       // d'un joueur qui a perdu le réseau plutôt que de casser la partie.
-      const grace = room.status === 'playing' ? RECONNECT_GRACE_PLAYING_MS : RECONNECT_GRACE_MS;
-      let removed = false;
+      // En salon, la place d'un joueur qui a verrouillé son téléphone est gardée
+      // 10 min TANT QUE quelqu'un est encore connecté. Une salle où plus personne
+      // ne l'est garde la purge courte : c'est ce qui protège la mémoire.
+      const someoneOn = [...room.players.values()].some((p) => p.connected);
+      const grace = room.status === 'playing'
+        ? RECONNECT_GRACE_PLAYING_MS
+        : (someoneOn ? LOBBY_KEEP_MS : RECONNECT_GRACE_MS);
       for (const p of [...room.players.values()]) {
         if (!p.connected && p.disconnectAt && now - p.disconnectAt > grace) {
-          room.players.delete(p.id);
-          room.lastReveal.delete(p.id);
-          removed = true;
+          room.removePlayer(p.id);
         }
       }
       // Salle vide -> suppression (aucune persistance)
@@ -153,11 +160,18 @@ setInterval(() => {
         gm.deleteRoom(room.code);
         continue;
       }
-      // Réattribution de l'hôte si l'hôte est parti
-      if (!room.players.has(room.hostId)) {
-        const next = [...room.players.values()][0];
-        room.hostId = next ? next.id : null;
+      // Réattribution de l'hôte : parti, OU hors ligne depuis 30 s alors que
+      // d'autres sont là. Un hôte au téléphone verrouillé bloquait tout le
+      // salon : personne d'autre ne pouvait lancer, régler ou valider.
+      const host = room.players.get(room.hostId);
+      const hostAway = !host || (!host.connected && host.disconnectAt && now - host.disconnectAt > HOST_AWAY_MS);
+      if (hostAway) {
+        const next = [...room.players.values()].find((p) => p.connected);
+        if (next) room.hostId = next.id;
+        else if (!host) room.hostId = [...room.players.values()][0].id;
       }
+      // Demandes de reprise de place expirées (hôte qui n'a jamais répondu)
+      expireReclaims(room, now);
 
       if (room.status === 'playing') {
         tickGame(room, now);
@@ -209,6 +223,23 @@ function tickGame(room, now) {
   // Sorties de zone (cachés uniquement)
   for (const p of room.players.values()) {
     if (p.role !== 'hider' || !p.pos) continue;
+
+    // Position périmée (écran verrouillé, tunnel, GPS coupé) : on ne juge pas
+    // un joueur sur l'endroit où il était il y a deux minutes. La conversion
+    // est SUSPENDUE, et à son retour il récupère un délai de grâce complet s'il
+    // est toujours dehors. Au-delà de 2 min sans signal, plus de pause : sans
+    // ce plafond, couper son GPS hors zone rendrait intouchable.
+    const age = now - (p.pos.time || 0);
+    if (age > POS_STALE_MS && age <= POS_LOST_MAX_MS) {
+      if (p.outOfZoneSince != null) p.zonePause = true;
+      continue;
+    }
+    if (p.zonePause) {
+      p.zonePause = false;
+      // De retour avec un point frais : le compte à rebours repart de zéro.
+      if (p.outOfZoneSince != null && age <= POS_STALE_MS) p.outOfZoneSince = null;
+    }
+
     const dist = room.distanceFromCenter(p.pos);
     // Marge d'incertitude GPS : on ne convertit pas sur du bruit. Un joueur n'est
     // "hors zone" que s'il l'est même en tenant compte de sa précision GPS.
@@ -301,7 +332,7 @@ io.on('connection', (socket) => {
     socket.data.lastCreateAt = now;
 
     const room = gm.createRoom();
-    const player = room.addPlayer(name);
+    const player = room.addPlayer(name, deviceId);
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
     tele.partieCreee();
@@ -321,15 +352,23 @@ io.on('connection', (socket) => {
     // Reprise par le nom : filet de sécurité quand la session locale est perdue
     // (téléphone redémarré, cache vidé, autre navigateur). On rend au joueur sa
     // place exacte — rôle, token QR, stats — au lieu de le laisser dehors.
+    //
+    // MAIS en pleine partie, le nom seul ne prouve rien : les noms sont
+    // affichés à tous, et un caché se déconnecte dès qu'il verrouille son
+    // téléphone. N'importe qui pouvait « rejoindre » sous son nom, récupérer
+    // son QR et le faire éliminer. En partie, la place n'est donc rendue
+    // directement qu'au MÊME appareil ; sinon l'hôte doit valider.
     const reclaim = room.findReclaimable(name);
     if (reclaim) {
-      reclaim.socketId = socket.id;
-      reclaim.connected = true;
-      reclaim.disconnectAt = null;
-      bind(socket, room.code, reclaim.id);
-      ack(cb, { ok: true, code: room.code, playerId: reclaim.id, qrToken: reclaim.qrToken, reclaimed: true });
-      emitStateToRoom(room);
-      return;
+      const memeAppareil = !!deviceId && !!reclaim.deviceId && deviceId === reclaim.deviceId;
+      if (room.status === 'lobby' || memeAppareil) {
+        grantReclaim(socket, room, reclaim);
+        ack(cb, { ok: true, code: room.code, playerId: reclaim.id, qrToken: reclaim.qrToken, reclaimed: true });
+        sendChatHistory(socket, room, reclaim);
+        emitStateToRoom(room);
+        return;
+      }
+      return requestReclaim(socket, room, reclaim, cb);
     }
 
     // Partie en cours : on n'accepte que les reprises, pas les nouveaux arrivants
@@ -340,7 +379,7 @@ io.on('connection', (socket) => {
     if (room.isNameTaken(name)) return ack(cb, { ok: false, error: 'Ce nom est déjà pris dans cette partie.' });
     if (room.players.size >= 40) return ack(cb, { ok: false, error: 'Partie complète.' });
 
-    const player = room.addPlayer(name);
+    const player = room.addPlayer(name, deviceId);
     player.socketId = socket.id;
     bind(socket, room.code, player.id);
     ack(cb, { ok: true, code: room.code, playerId: player.id, qrToken: player.qrToken });
@@ -413,6 +452,7 @@ io.on('connection', (socket) => {
   // anormal : sur mobile la connexion peut mourir sans événement 'disconnect',
   // laissant l'écran figé (positions et timers bloqués) jusqu'à un refresh manuel.
   socket.on('resync', () => {
+    if (tropTot(socket, 'resync', 1000)) return;
     const ctx = ctxOf(socket);
     if (!ctx) return;
     try {
@@ -425,14 +465,23 @@ io.on('connection', (socket) => {
 
   // --- Position GPS ---
   // --- État des autorisations de l'appareil, rapporté par chaque client ---
+  // Chaque appel renvoyait l'état à TOUTE la salle : un téléphone qui boucle
+  // sur cet envoi faisait recalculer et réexpédier l'état de douze joueurs en
+  // rafale. On ne diffuse plus que sur un vrai changement, et le tick suivant
+  // rattrape de toute façon l'affichage.
   socket.on('ready', (patch) => {
     const ctx = ctxOf(socket);
     if (!ctx) return;
+    const avant = JSON.stringify(ctx.player.ready);
     ctx.room.setReady(ctx.playerId, patch);
+    if (JSON.stringify(ctx.player.ready) === avant) return;
+    if (tropTot(socket, 'ready', 400)) return;
     emitStateToRoom(ctx.room);
   });
 
   socket.on('pos', (pos) => {
+    // Le client envoie au plus toutes les 0,5 s ; au-delà c'est un bug ou un abus.
+    if (tropTot(socket, 'pos', 250)) return;
     const ctx = ctxOf(socket);
     if (!ctx) return;
     ctx.room.updatePosition(ctx.playerId, pos);
@@ -489,7 +538,9 @@ io.on('connection', (socket) => {
     const { texte } = censurer(msg);
     // `id` et `fromId` ne sont pas décoratifs : sans eux on ne peut ni désigner
     // un message à signaler, ni savoir qui bloquer.
-    const payload = { id: randomUUID().slice(0, 12), fromId: player.id, from: player.name, text: texte, at: now };
+    // `fromId` est l'identifiant PUBLIC. C'était l'identifiant de session :
+    // chaque message offrait à toute la salle de quoi usurper son auteur.
+    const payload = { id: randomUUID().slice(0, 12), fromId: player.pid, from: player.name, role: player.role, text: texte, at: now };
     // On archive AVANT de diffuser : un joueur hors réseau à cet instant ne
     // recevra rien, mais retrouvera le message à sa reconnexion.
     room.addChat(payload);
@@ -498,7 +549,7 @@ io.on('connection', (socket) => {
     // un message écarté à l'affichage serait quand même arrivé sur l'appareil.
     for (const p of room.players.values()) {
       if (!p.connected || !p.socketId) continue;
-      if (p.blocked && p.blocked.has(player.id)) continue;
+      if (p.blocked && p.blocked.has(player.pid)) continue;
       io.to(p.socketId).emit('chat', payload);
     }
   });
@@ -522,11 +573,12 @@ io.on('connection', (socket) => {
     const ctx = ctxOf(socket);
     if (!ctx) return ack(cb, { ok: false });
     const { room, player } = ctx;
-    if (!playerId || playerId === player.id) return ack(cb, { ok: false });
-    const cible = room.players.get(playerId);
+    // `playerId` désigne ici l'identifiant PUBLIC du joueur visé (celui du chat).
+    const cible = room.byPid(playerId);
     if (!cible) return ack(cb, { ok: false, error: 'Joueur introuvable.' });
-    if (bloquer === false) player.blocked.delete(playerId);
-    else player.blocked.add(playerId);
+    if (cible.id === player.id) return ack(cb, { ok: false });
+    if (bloquer === false) player.blocked.delete(cible.pid);
+    else player.blocked.add(cible.pid);
     ack(cb, { ok: true, bloques: [...player.blocked] });
   });
 
@@ -534,9 +586,73 @@ io.on('connection', (socket) => {
   socket.on('leave', () => {
     const ctx = ctxOf(socket);
     if (!ctx) return;
-    ctx.room.players.delete(ctx.playerId);
+    ctx.room.removePlayer(ctx.playerId);
     socketIndex.delete(socket.id);
+    ctx.room.checkEnd();
     emitStateToRoom(ctx.room);
+  });
+
+  // --- Contrôles de l'hôte ---------------------------------------------------
+  // L'hôte n'avait AUCUN levier une fois la partie lancée : ni terminer, ni
+  // écarter un joueur fantôme qui bloque la fin, ni passer la main.
+  socket.on('host:end', (_d, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx || !ctx.room.isHost(ctx.playerId)) return ack(cb, { ok: false, error: 'Réservé à l’hôte.' });
+    if (!ctx.room.endByHost()) return ack(cb, { ok: false, error: 'La partie n’est pas en cours.' });
+    ack(cb, { ok: true });
+    emitStateToRoom(ctx.room);
+  });
+
+  socket.on('host:kick', ({ pid } = {}, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx || !ctx.room.isHost(ctx.playerId)) return ack(cb, { ok: false, error: 'Réservé à l’hôte.' });
+    const cible = ctx.room.byPid(pid);
+    if (!cible) return ack(cb, { ok: false, error: 'Joueur introuvable.' });
+    if (cible.id === ctx.playerId) return ack(cb, { ok: false, error: 'Tu ne peux pas t’exclure toi-même.' });
+    if (cible.socketId) {
+      io.to(cible.socketId).emit('kicked');
+      socketIndex.delete(cible.socketId);
+    }
+    ctx.room.removePlayer(cible.id);
+    ctx.room.checkEnd();
+    ack(cb, { ok: true, name: cible.name });
+    emitStateToRoom(ctx.room);
+  });
+
+  socket.on('host:transfer', ({ pid } = {}, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx || !ctx.room.isHost(ctx.playerId)) return ack(cb, { ok: false, error: 'Réservé à l’hôte.' });
+    const cible = ctx.room.byPid(pid);
+    if (!cible || !cible.connected) return ack(cb, { ok: false, error: 'Ce joueur n’est pas en ligne.' });
+    ctx.room.hostId = cible.id;
+    ack(cb, { ok: true, name: cible.name });
+    emitStateToRoom(ctx.room);
+  });
+
+  // Réponse de l'hôte à une demande de reprise de place (voir requestReclaim)
+  socket.on('reclaim:answer', ({ reqId, accept } = {}, cb) => {
+    const ctx = ctxOf(socket);
+    if (!ctx || !ctx.room.isHost(ctx.playerId)) return ack(cb, { ok: false, error: 'Réservé à l’hôte.' });
+    const room = ctx.room;
+    const req = room.reclaims && room.reclaims.get(reqId);
+    if (!req) return ack(cb, { ok: false, error: 'Demande expirée.' });
+    room.reclaims.delete(reqId);
+    const demandeur = io.sockets.sockets.get(req.socketId);
+    const place = room.players.get(req.playerId);
+    if (!demandeur || !place) return ack(cb, { ok: false, error: 'Le joueur n’est plus là.' });
+    if (!accept) {
+      demandeur.emit('reclaim:result', { ok: false, error: 'L’hôte a refusé la reprise de cette place.' });
+      return ack(cb, { ok: true });
+    }
+    if (place.connected) {
+      demandeur.emit('reclaim:result', { ok: false, error: 'Cette place est de nouveau occupée.' });
+      return ack(cb, { ok: false, error: 'Le joueur est déjà revenu.' });
+    }
+    grantReclaim(demandeur, room, place);
+    demandeur.emit('reclaim:result', { ok: true, code: room.code, playerId: place.id, qrToken: place.qrToken, reclaimed: true });
+    sendChatHistory(demandeur, room, place);
+    ack(cb, { ok: true });
+    emitStateToRoom(room);
   });
 
   // --- Déconnexion ---
@@ -594,6 +710,50 @@ function ctxOf(socket) {
 
 function ack(cb, data) {
   if (typeof cb === 'function') cb(data);
+}
+
+// Frein par socket et par type d'action. Renvoie true si l'appel arrive trop tôt.
+function tropTot(socket, cle, ms) {
+  const now = Date.now();
+  const t = socket.data.freins || (socket.data.freins = {});
+  if (now - (t[cle] || 0) < ms) return true;
+  t[cle] = now;
+  return false;
+}
+
+// --- Reprise de place --------------------------------------------------------
+function grantReclaim(socket, room, player) {
+  player.socketId = socket.id;
+  player.connected = true;
+  player.disconnectAt = null;
+  bind(socket, room.code, player.id);
+}
+
+const RECLAIM_TTL_MS = 90 * 1000;
+// En partie, un autre appareil qui réclame une place par le nom attend la
+// validation de l'hôte : c'est lui qui voit la personne en face.
+function requestReclaim(socket, room, place, cb) {
+  const host = room.players.get(room.hostId);
+  if (!host || !host.connected || !host.socketId || host.id === place.id) {
+    return ack(cb, { ok: false, error: 'L’hôte doit être en ligne pour valider ta reprise. Réessaie dans un instant.' });
+  }
+  if (!room.reclaims) room.reclaims = new Map();
+  // Une seule demande en attente par place et par socket
+  for (const [k, r] of room.reclaims) if (r.playerId === place.id || r.socketId === socket.id) room.reclaims.delete(k);
+  const reqId = randomUUID().slice(0, 12);
+  room.reclaims.set(reqId, { socketId: socket.id, playerId: place.id, at: Date.now() });
+  io.to(host.socketId).emit('reclaim:request', { reqId, name: place.name });
+  ack(cb, { ok: false, pending: true, error: 'Demande envoyée à l’hôte : il doit confirmer que c’est bien toi.' });
+}
+
+function expireReclaims(room, now) {
+  if (!room.reclaims || !room.reclaims.size) return;
+  for (const [k, r] of room.reclaims) {
+    if (now - r.at > RECLAIM_TTL_MS) {
+      room.reclaims.delete(k);
+      io.to(r.socketId).emit('reclaim:result', { ok: false, error: 'L’hôte n’a pas répondu. Réessaie.' });
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------

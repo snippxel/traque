@@ -37,6 +37,9 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   await emit(c, 'joinRoom', { code: salle.code, name: 'CHARLIE', deviceId: 'appareil-de-test-charlie' });
 
   const recusA = [], recusC = [];
+  // Identifiant PUBLIC de A (celui que les autres voient) : c’est lui qui désigne un joueur.
+  let pidA = null;
+  a.on("state", (st) => { if (st && st.you) pidA = st.you.pid; });
   a.on('chat', (m) => recusA.push(m));
   c.on('chat', (m) => recusC.push(m));
   await wait(150);
@@ -47,6 +50,8 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   const filtre = recusA.find((m) => m.from === 'BRAVO');
   assert(!!filtre && filtre.text.includes('█'), 'Insulte censurée avant diffusion');
   assert(!!filtre && !!filtre.id && !!filtre.fromId, 'Le message porte un id et un fromId');
+  assert(!!filtre && filtre.fromId !== jB.playerId, 'Le fromId n’est PAS l’identifiant de session de l’auteur');
+  const pidB = filtre && filtre.fromId;
 
   // --- Signalement
   const rapport = await emit(a, 'chat:report', { id: filtre.id });
@@ -55,7 +60,7 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   assert(fantome && fantome.ok === false, 'Signalement d’un message inconnu refusé');
 
   // --- Blocage : A bloque B. C, lui, ne bloque personne.
-  const bloc = await emit(a, 'chat:block', { playerId: jB.playerId, bloquer: true });
+  const bloc = await emit(a, 'chat:block', { playerId: pidB, bloquer: true });
   assert(bloc && bloc.ok === true, 'Blocage accepté');
 
   await wait(700); // laisse passer l'anti-spam de B
@@ -77,10 +82,10 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   assert(repris && repris.ok === true, 'Reprise de session acceptée');
   await wait(300);
   assert(histo.some((m) => m.from === 'CHARLIE'), 'L’historique rejoué contient bien les messages non bloqués');
-  assert(!histo.some((m) => m.fromId === jB.playerId), 'L’historique rejoué ne contient aucun message de la personne bloquée');
+  assert(!histo.some((m) => m.fromId === pidB), 'L’historique rejoué ne contient aucun message de la personne bloquée');
 
   // --- Déblocage
-  const debloc = await emit(a, 'chat:block', { playerId: jB.playerId, bloquer: false });
+  const debloc = await emit(a, 'chat:block', { playerId: pidB, bloquer: false });
   assert(debloc && debloc.ok === true, 'Déblocage accepté');
   await wait(700);
   const avant2 = recusA.length;
@@ -89,7 +94,7 @@ const assert = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) f
   assert(recusA.length > avant2, 'Après déblocage, les messages repassent');
 
   // --- On ne peut pas se bloquer soi-même
-  const soi = await emit(a, 'chat:block', { playerId: salle.playerId, bloquer: true });
+  const soi = await emit(a, 'chat:block', { playerId: pidA, bloquer: true });
   assert(soi && soi.ok === false, 'Se bloquer soi-même est refusé');
 
   console.log('\n' + (failures === 0 ? 'TOUS LES TESTS PASSENT ✓' : failures + ' ÉCHEC(S) ✗'));

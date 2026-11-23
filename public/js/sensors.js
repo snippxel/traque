@@ -119,22 +119,29 @@ window.Sensors = (function () {
 
   // -------------------- Wake Lock --------------------
   let wakeLock = null;
+  // VOULU seulement pendant une partie. La réacquisition au retour au premier
+  // plan se déclenchait aussi à l'accueil et dans le salon, après une partie :
+  // l'écran ne s'éteignait plus jamais, batterie vidée dans la poche.
+  let wakeWanted = false;
   // Retourne true si l'écran est effectivement maintenu allumé. L'appelant peut
   // ainsi prévenir le joueur : écran verrouillé = GPS coupé = position figée.
   async function requestWakeLock() {
+    wakeWanted = true;
     try {
       if (!('wakeLock' in navigator)) return false;
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => { wakeLock = null; });
+      // Libéré entre-temps (fin de partie pendant la demande) : on rend aussitôt.
+      if (!wakeWanted) { releaseWakeLock(); return false; }
       return true;
     } catch (_) { return false; } // l'API se libère parfois seule, on redemande au retour
   }
   function initWakeLockAutoReacquire() {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && wakeLock === null) requestWakeLock();
+      if (wakeWanted && document.visibilityState === 'visible' && wakeLock === null) requestWakeLock();
     });
   }
-  function releaseWakeLock() { try { wakeLock && wakeLock.release(); } catch (_) {} wakeLock = null; }
+  function releaseWakeLock() { wakeWanted = false; try { wakeLock && wakeLock.release(); } catch (_) {} wakeLock = null; }
 
   // -------------------- Vibration --------------------
   // -------------------- Retour haptique --------------------

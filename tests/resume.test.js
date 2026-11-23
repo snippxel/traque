@@ -63,7 +63,7 @@ const HIDER = { lat: 48.8569, lng: 2.3525, accuracy: 8 };
   const host2 = connect(), lost = connect();
   await ready(host2); await ready(lost);
   const c2 = await emit(host2, 'createRoom', { name: 'H2' });
-  const jl = await emit(lost, 'joinRoom', { code: c2.code, name: 'PERDU' });
+  const jl = await emit(lost, 'joinRoom', { code: c2.code, name: 'PERDU', deviceId: 'tel-perdu' });
   host2.emit('assignRoles', { mode: 'manual', assignments: { [c2.playerId]: 'hunter', [jl.playerId]: 'hider' } });
   host2.emit('updateConfig', { config: { startRadius: 5000, finalRadius: 200, durationMin: 20, shrinkSteps: 2, revealIntervalMin: 5, graceSeconds: 10, radarUses: 3, dispersionSeconds: 0, startRevealSeconds: 0, lastSurvivor: false } });
   await wait(200);
@@ -75,10 +75,12 @@ const HIDER = { lat: 48.8569, lng: 2.3525, accuracy: 8 };
   lost.close(); // perte totale (comme un téléphone éteint)
   await wait(1200);
 
-  // Un nouveau socket, SANS session : il rejoint avec le code + le même nom
+  // Un nouveau socket, SANS session : il rejoint avec le code + le même nom,
+  // depuis le MÊME téléphone (l'identifiant d'appareil survit à la perte de
+  // session). Depuis un autre appareil, l'hôte doit valider : voir anticheat.
   const back = connect();
   await ready(back);
-  const rej = await emit(back, 'joinRoom', { code: c2.code, name: 'PERDU' });
+  const rej = await emit(back, 'joinRoom', { code: c2.code, name: 'PERDU', deviceId: 'tel-perdu' });
   assert(rej && rej.ok && rej.reclaimed, 'Rejoindre avec le code en pleine partie reprend la place');
   assert(rej.playerId === jl.playerId, 'Même joueur (place exacte reprise, pas un nouveau)');
   assert(rej.qrToken === jl.qrToken, 'Token QR conservé après reprise par le code');

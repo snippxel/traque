@@ -292,10 +292,82 @@
   window.addEventListener('online', forceResync);
 
   // ================================================================ ÉVÉNEMENTS
+  // ------------------------------------------------------ HORLOGE DU SERVEUR
+  // Toutes les échéances (hors-zone, dispersion, rétrécissement, révélation,
+  // radar) sont des heures SERVEUR, et elles étaient comparées à l'heure du
+  // TÉLÉPHONE. Un téléphone décalé de 5 s affichait un compte à rebours de
+  // sortie de zone faux de moitié avec un délai de grâce de 10 s.
+  // On estime le décalage à chaque état reçu, puis on convertit toutes les
+  // heures serveur en heures locales DÈS LA RÉCEPTION : le reste du code peut
+  // continuer à comparer à Date.now() sans le savoir.
+  // Estimateur : le MAX des derniers écarts. La latence réseau ne peut que
+  // faire paraître l'horloge serveur en retard, jamais en avance — l'écart le
+  // plus grand est donc le moins pollué par le réseau.
+  let clockOffset = 0;
+  const ecarts = [];
+  function noteServerClock(serverNow) {
+    if (!Number.isFinite(serverNow)) return;
+    ecarts.push(serverNow - Date.now());
+    if (ecarts.length > 12) ecarts.shift();
+    clockOffset = Math.max(...ecarts);
+  }
+  const loc = (t) => (Number.isFinite(t) ? t - clockOffset : t);
+  function localiserListe(l) {
+    if (!Array.isArray(l)) return;
+    for (const x of l) { if (x.until != null) x.until = loc(x.until); if (x.time != null) x.time = loc(x.time); }
+  }
+  function localiserEtat(s) {
+    noteServerClock(s.serverNow);
+    for (const k of ['dispersionEndsAt', 'startRevealEndsAt', 'nextRevealAt', 'startTime']) if (s[k] != null) s[k] = loc(s[k]);
+    if (s.zone && s.zone.nextShrinkAt != null) s.zone.nextShrinkAt = loc(s.zone.nextShrinkAt);
+    if (s.you && s.you.outOfZoneUntil != null) s.you.outOfZoneUntil = loc(s.you.outOfZoneUntil);
+    if (s.you && s.you.pos && s.you.pos.time != null) s.you.pos.time = loc(s.you.pos.time);
+    localiserListe(s.reveals); localiserListe(s.signals); localiserListe(s.spotted); localiserListe(s.teammates);
+    return s;
+  }
+  const myPid = () => (state.last && state.last.you && state.last.you.pid) || null;
+
   socket.on('state', (s) => {
+    localiserEtat(s);
+    // L'hôte peut changer (passation, hôte resté hors ligne) : le dire à celui
+    // qui hérite du rôle, sinon il découvre des boutons sans savoir pourquoi.
+    if (state.wasHost === false && s.isHost) toast('Tu es maintenant l’hôte de la partie.', '', 5000);
+    state.wasHost = !!s.isHost;
     state.last = s; state.lastAt = Date.now();
     state.role = s.you.role;
     route(s);
+  });
+
+  // Exclu par l'hôte : la place n'existe plus, inutile de tenter une reprise.
+  socket.on('kicked', () => {
+    clearSession();
+    resetToHome();
+    homeError('TU AS ÉTÉ RETIRÉ DE LA PARTIE PAR L’HÔTE');
+  });
+
+  // Hôte : quelqu'un réclame une place depuis un autre téléphone. C'est l'hôte
+  // qui voit la personne en face : c'est lui qui confirme.
+  socket.on('reclaim:request', ({ reqId, name }) => {
+    Sensors.vibrate([120, 60, 120]);
+    confirmAction(
+      'REPRISE DE PLACE',
+      '« ' + name + ' » veut reprendre sa place depuis un autre téléphone. C’est bien cette personne, en face de toi ?',
+      () => socket.emit('reclaim:answer', { reqId, accept: true }, (r) => toast(r && r.ok ? name + ' a repris sa place.' : ((r && r.error) || 'Reprise impossible.'), '', 3500)),
+      () => socket.emit('reclaim:answer', { reqId, accept: false })
+    );
+  });
+
+  // Demandeur : réponse de l'hôte
+  let pendingJoinName = '';
+  socket.on('reclaim:result', (res) => {
+    if (res && res.ok) {
+      state.code = res.code; state.playerId = res.playerId; state.name = pendingJoinName || state.name; state.joined = true;
+      saveSession(); startGeo(); renvoyerEtat();
+      homeError('');
+      toast('Place reprise — ton rôle et ton code QR sont conservés.', '', 5000);
+    } else {
+      homeError(voice(res && res.error, 'REPRISE REFUSÉE'));
+    }
   });
 
   // Ouvre l'alerte hors-zone. Idempotent : appelée aussi bien par l'événement
@@ -309,12 +381,13 @@
     Sensors.startAlarm();
     Sensors.vibrate([300, 150, 300, 150, 600]);
   }
-  socket.on('zone:alert', ({ deadline }) => openZoneAlert(deadline));
+  socket.on('zone:alert', ({ deadline }) => { openZoneAlert(loc(deadline)); dire('Hors zone ! Reviens dans la zone.'); });
   socket.on('zone:alertCancelled', () => clearZoneAlert());
 
   // La zone va se fermer (~1 min) et je ne suis pas dans la prochaine zone
   socket.on('zone:closing', ({ atTime }) => {
-    state.zoneClosingAt = atTime;
+    state.zoneClosingAt = loc(atTime);
+    dire('La zone se ferme dans une minute. Rejoins la zone.');
     wantBanner('zone-closing', true);
     updateAlertLane();
     Sensors.vibrate([300, 130, 300, 130, 460]);
@@ -336,6 +409,7 @@
     state.zoneClosingAt = 0;
     state.spottedUntil = 0;
     showCaptureTakeover(reason, by);
+    dire(reason === 'scan' ? 'Capturé. Tu es chasseur maintenant.' : 'Sorti de la zone. Tu es chasseur maintenant.');
   });
 
   let captureTimer = null;
@@ -377,6 +451,7 @@
     Sensors.sfx('breach');
     Sensors.vibrate([260, 110, 260, 110, 520]);
     toast('SORTIE DE ZONE : ' + name, 'danger', 4000);
+    dire(name + ' est sorti de la zone.');
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const pts = [[lat, lng]];
       if (state.selfPos) pts.push([state.selfPos.lat, state.selfPos.lng]);
@@ -403,8 +478,10 @@
 
   // Le caché a été repéré au radar : alerte marquée (son + vibration répétés,
   // flash prolongé), et il voit le chasseur en direct pendant 30 s.
-  socket.on('radar:spotted', ({ by, hunter, until }) => {
+  socket.on('radar:spotted', ({ by, hunter, until: untilSrv }) => {
+    const until = loc(untilSrv);
     state.spottedUntil = until;
+    dire('Repéré au radar ! Bouge.');
     showSpotAlert(by);
     Sensors.vibrate([300, 150, 300, 150, 300, 150, 600]);
     Sensors.sfx('spotted');
@@ -420,6 +497,7 @@
   socket.on('teammate:down', ({ name, reason, by, lat, lng, hidersLeft }) => {
     const how = reason === 'zone' ? 'sorti de la zone' : (by ? 'pris par ' + by : 'capturé');
     toast('⚠ ' + name + ' est tombé (' + how + ')', 'danger', 5000);
+    dire(name + ' est tombé.' + (typeof hidersLeft === 'number' ? ' Cachés restants : ' + hidersLeft + '.' : ''));
     Sensors.vibrate([280, 120, 280, 120, 400]);
     Sensors.sfx('down');
     GameMap.addDown(lat, lng, name, 120000);
@@ -464,13 +542,15 @@
     const k = cleChat(m);
     if (chatVus.has(k)) return;
     chatVus.add(k);
-    if ($('modal-chat').classList.contains('hidden') && from !== state.name) {
+    const deMoi = m.fromId ? m.fromId === myPid() : from === state.name;
+    if ($('modal-chat').classList.contains('hidden') && !deMoi) {
       unreadChat++; updateChatBadge();
     }
     addChatMessage(m);
     const log = $('chat-log');
     const b = document.createElement('div');
-    b.className = 'chat-bubble';
+    // Couleur du rôle de l'auteur (loi de couleur : magenta = chasseur)
+    b.className = 'chat-bubble' + (m.role === 'hunter' ? ' hunter' : '');
     b.innerHTML = '<b>' + escapeHtml(from) + '</b><span>' + escapeHtml(text) + '</span>';
     log.appendChild(b);
     Sensors.sfx('chat');
@@ -498,7 +578,7 @@
 
     // Pas de recours contre soi-même, ni sur un fil rejoué sans identifiants
     // (anciens messages d'une salle lancée avant cette version).
-    if (m.id && m.fromId && m.from !== state.name) {
+    if (m.id && m.fromId && m.fromId !== myPid()) {
       const outils = document.createElement('span');
       outils.className = 'cm-outils';
 
@@ -571,20 +651,57 @@
   }
 
   // ---------------------------------------------------------------- LOBBY
+  // Le salon reconstruisait ses listes (joueurs, rôles manuels, état des
+  // appareils) à CHAQUE état, soit toutes les 1,5 s : un appui sur un bouton de
+  // rôle tombait parfois sur un bouton déjà détruit, et rien ne se passait. On
+  // ne reconstruit plus qu'au vrai changement.
+  const signatures = {};
+  function changed(cle, valeur) {
+    const sig = JSON.stringify(valeur);
+    if (signatures[cle] === sig) return false;
+    signatures[cle] = sig;
+    return true;
+  }
+
+  // Actions de l'hôte sur un joueur : passer la main, retirer de la partie.
+  function hostActions(p) {
+    const wrap = document.createElement('span');
+    wrap.className = 'r-acts';
+    const give = document.createElement('button');
+    give.type = 'button'; give.className = 'r-act'; give.textContent = 'HÔTE';
+    give.setAttribute('aria-label', 'Donner le rôle d’hôte à ' + p.name);
+    give.disabled = !p.connected;
+    give.onclick = () => confirmAction('PASSER LA MAIN', p.name + ' devient l’hôte : lancement, réglages et arbitrage.', () => {
+      socket.emit('host:transfer', { pid: p.id }, (r) => toast(r && r.ok ? p.name + ' est l’hôte.' : ((r && r.error) || 'Impossible.'), '', 3000));
+    });
+    const kick = document.createElement('button');
+    kick.type = 'button'; kick.className = 'r-act danger'; kick.textContent = '✕';
+    kick.setAttribute('aria-label', 'Retirer ' + p.name + ' de la partie');
+    kick.onclick = () => confirmAction('RETIRER ' + p.name.toUpperCase(), p.name + ' quitte la partie et perd sa place.', () => {
+      socket.emit('host:kick', { pid: p.id }, (r) => toast(r && r.ok ? p.name + ' a été retiré.' : ((r && r.error) || 'Impossible.'), '', 3000));
+    });
+    wrap.appendChild(give); wrap.appendChild(kick);
+    return wrap;
+  }
+
   function renderLobby(s) {
     $('lobby-code').textContent = s.code;
     // Roster
     const roster = $('roster');
-    roster.innerHTML = '';
-    (s.roster || []).forEach((p) => {
-      const li = document.createElement('li');
-      if (p.connected) li.classList.add('on');
-      li.innerHTML =
-        '<span class="dot"></span>' +
-        '<span class="r-name">' + escapeHtml(p.name) + (p.isHost ? ' <span class="r-host">HÔTE</span>' : '') + '</span>' +
-        '<span class="r-role ' + p.role + '">' + (p.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ') + '</span>';
-      roster.appendChild(li);
-    });
+    if (changed('roster', [s.isHost, (s.roster || []).map((p) => [p.id, p.name, p.role, p.connected, p.isHost])])) {
+      roster.innerHTML = '';
+      (s.roster || []).forEach((p) => {
+        const li = document.createElement('li');
+        if (p.connected) li.classList.add('on');
+        li.innerHTML =
+          '<span class="dot"></span>' +
+          '<span class="r-name">' + escapeHtml(p.name) + (p.isHost ? ' <span class="r-host">HÔTE</span>' : '') +
+          (p.connected ? '' : ' <span class="r-off">hors ligne</span>') + '</span>' +
+          '<span class="r-role ' + p.role + '">' + (p.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ') + '</span>';
+        if (s.isHost && p.id !== myPid()) li.appendChild(hostActions(p));
+        roster.appendChild(li);
+      });
+    }
     const count = (s.roster || []).length;
     $('roster-count').textContent = count;
     $('lb-count').textContent = count;
@@ -679,6 +796,7 @@
 
   function renderManual(s) {
     const wrap = $('manual-assign');
+    if (!changed('manual', (s.roster || []).map((p) => [p.id, p.name, p.role]))) return;
     wrap.innerHTML = '';
     (s.roster || []).forEach((p) => {
       const row = document.createElement('div');
@@ -744,6 +862,7 @@
       if (state.lastRadius != null && s.zone.radius < state.lastRadius - 1) {
         Sensors.sfx('shrink');
         Sensors.vibrate([300, 120, 300, 120, 560]);
+        dire('La zone a rétréci : ' + Math.round(s.zone.radius) + ' mètres.');
       }
       state.lastRadius = s.zone.radius;
       GameMap.setZone(s.zone);
@@ -767,18 +886,22 @@
     // Position perso sur la carte
     if (state.selfPos) GameMap.setSelf(state.selfPos, role);
 
-    // Coéquipiers
-    GameMap.setTeammates(s.teammates || [], role);
+    // Coéquipiers. Un point qui ne bouge plus parce que le téléphone dort
+    // ressemblait exactement à un coéquipier immobile : on affiche son âge.
+    GameMap.setTeammates((s.teammates || []).map((t) => ({ ...t, name: t.name + ageSuffix(t.time) })), role);
 
     // Chasseur : signaux + révélations. Caché : chasseur(s) si repéré au radar.
     if (role === 'hunter') {
-      // Le signal gris affiche son âge : "KARL · 3min" = position vieille de 3 min
+      // Le signal gris affiche son âge : "KARL · 3min" = dernier point GPS vieux
+      // de 3 min (l'âge du point, plus celui de la révélation).
       const now = Date.now();
       GameMap.setSignals((s.signals || []).map((sig) => ({
         ...sig,
         name: sig.name + ' · ' + Math.max(0, Math.round((now - sig.time) / 60000)) + 'min',
       })));
-      GameMap.setReveals(s.reveals || []);
+      // Une cible radar dont le téléphone dort : on montre où elle était, et
+      // depuis quand — pas une fausse position « en direct ».
+      GameMap.setReveals((s.reveals || []).map((r) => ({ ...r, name: r.name + ageSuffix(r.time) })));
       GameMap.setSpotted([]);
       // Le serveur donne un 'until' par révélation : on garde la plus lointaine
       // pour savoir combien de temps la cible reste encore affichée.
@@ -823,6 +946,14 @@
     renderPlayersPanel(); // liste des joueurs si elle est ouverte
 
     updateTimers();
+  }
+
+  // « · signal 2 min » quand le dernier point GPS a plus de 45 s, rien sinon.
+  function ageSuffix(t) {
+    if (!Number.isFinite(t)) return '';
+    const age = Date.now() - t;
+    if (age < 45000) return '';
+    return age < 60000 ? ' · signal ' + Math.round(age / 1000) + 's' : ' · signal ' + Math.round(age / 60000) + 'min';
   }
 
   // Ticker local pour fluidifier minuteurs entre deux états serveur
@@ -1068,6 +1199,7 @@
         Sensors.vibrate([0, 300, 45, 115, 70, 190, 55, 105, 280]);
         Sensors.sfx('kickoff');
         showKickoff(state.role);
+        dire(state.role === 'hunter' ? 'La chasse commence.' : 'La chasse commence. Cache-toi.');
       }
       return;
     }
@@ -1167,6 +1299,7 @@
     $('chat-messages').innerHTML = '';
     chatVus.clear(); // sinon un rejeu après REJOUER serait filtré comme déjà vu
     $('players-panel').classList.add('hidden');
+    $('btn-recenter').textContent = '⌖';
     $('modal-rules').classList.add('hidden');
     $('modal-confirm').classList.add('hidden');
     unreadChat = 0; updateChatBadge();
@@ -1182,6 +1315,8 @@
       $('end-personal').className = 'end-personal';
       $('end-banner').className = 'end-banner';
       $('end-banner').textContent = 'FIN DE PARTIE';
+      $('end-reason').classList.add('hidden');
+      $('end-badges').innerHTML = '';
       $('stats-table').querySelector('tbody').innerHTML = '';
       $('btn-replay').classList.toggle('hidden', !s.isHost);
       return;
@@ -1192,7 +1327,16 @@
     // Comme un caché capturé DEVIENT chasseur, un joueur éliminé à la deuxième
     // minute lisait "VICTOIRE DES CHASSEURS" et avait donc techniquement gagné.
     // Le bandeau ne disait jamais ce qui t'était arrivé à TOI.
-    const me = (r.stats || []).find((p) => p.name === state.name);
+    const estMoi = (p) => (p.pid && myPid() ? p.pid === myPid() : p.name === state.name);
+    const me = (r.stats || []).find(estMoi);
+
+    // Pourquoi la partie s'arrête, quand ce n'est pas la règle normale
+    const raison = $('end-reason');
+    const txtRaison = r.reason === 'host' ? 'PARTIE ARRÊTÉE PAR L’HÔTE'
+      : r.reason === 'abandon' ? 'UNE ÉQUIPE ENTIÈRE A QUITTÉ LA PARTIE' : '';
+    raison.textContent = txtRaison;
+    raison.classList.toggle('hidden', !txtRaison);
+    renderBadges(r.stats || []);
     const pers = $('end-personal');
     if (me) {
       if (me.neverCaught && me.startRole === 'hider') {
@@ -1222,7 +1366,7 @@
     tbody.innerHTML = '';
     r.stats.forEach((p) => {
       const tr = document.createElement('tr');
-      if (p.name === state.name) tr.classList.add('me');
+      if (estMoi(p)) tr.classList.add('me');
       if (p.neverCaught) tr.classList.add('survivor');
       const survie = p.survivedMs == null ? '—' : fmt(p.survivedMs) + (p.neverCaught ? ' ✓' : '');
       tr.innerHTML =
@@ -1234,6 +1378,40 @@
       tbody.appendChild(tr);
     });
   }
+
+  // Trois distinctions : de quoi parler en rentrant, et une raison de rejouer.
+  function renderBadges(stats) {
+    const box = $('end-badges');
+    box.innerHTML = '';
+    const meilleur = (liste, val) => liste.reduce((m, p) => (val(p) > (m ? val(m) : -Infinity) ? p : m), null);
+    const cachés = stats.filter((p) => p.startRole === 'hider' && p.survivedMs != null);
+    const badges = [];
+    const surv = meilleur(cachés, (p) => p.survivedMs);
+    if (surv) badges.push(['hider', 'INSAISISSABLE', surv.name, fmt(surv.survivedMs)]);
+    const chass = meilleur(stats.filter((p) => p.captures > 0), (p) => p.captures);
+    if (chass) badges.push(['hunter', 'PRÉDATEUR', chass.name, chass.captures + (chass.captures > 1 ? ' captures' : ' capture')]);
+    const coureur = meilleur(stats.filter((p) => p.distance > 0), (p) => p.distance);
+    if (coureur) badges.push(['run', 'MARATHONIEN', coureur.name, coureur.distance >= 1000 ? (coureur.distance / 1000).toFixed(1) + ' km' : coureur.distance + ' m']);
+    for (const [cls, titre, nom, val] of badges) {
+      const b = document.createElement('div');
+      b.className = 'end-badge ' + cls;
+      b.innerHTML = '<span class="eb-t">' + titre + '</span><span class="eb-n">' + escapeHtml(nom) + '</span><span class="eb-v">' + escapeHtml(val) + '</span>';
+      box.appendChild(b);
+    }
+  }
+
+  $('btn-share-result').onclick = async () => {
+    const r = state.last && state.last.result;
+    if (!r) return;
+    const lignes = [r.winner === 'hunters' ? 'TRAQUE — victoire des chasseurs' : 'TRAQUE — victoire des cachés'];
+    for (const b of document.querySelectorAll('#end-badges .end-badge')) {
+      lignes.push(b.querySelector('.eb-t').textContent + ' : ' + b.querySelector('.eb-n').textContent + ' (' + b.querySelector('.eb-v').textContent + ')');
+    }
+    lignes.push(location.origin);
+    const texte = lignes.join('\n');
+    try { if (navigator.share) { await navigator.share({ title: 'TRAQUE', text: texte }); return; } } catch (_) { return; }
+    try { await navigator.clipboard.writeText(texte); toast('Résultat copié.', '', 2500); } catch (_) { toast('Partage indisponible.', '', 2500); }
+  };
 
   // ================================================================ GPS
   // Le badge affichait `GPS --` en VERT PHOSPHORE — la couleur "tout va bien" —
@@ -1250,13 +1428,25 @@
     Sensors.watchPosition(onPos, onGeoError);
     updateGpsBadge();
   }
+  // En intérieur, le GPS dépasse son délai toutes les 20 s : le joueur recevait
+  // « Délai GPS dépassé » en boucle, et le serveur apprenait à chaque fois que
+  // son GPS était « refusé ». Seul un VRAI refus est définitif et mérite d'être
+  // crié ; un délai est transitoire, le badge GPS (« PERDU 0:42 ») le montre
+  // déjà en continu. On le dit une fois par minute au plus.
+  let geoToastAt = 0;
   function onGeoError(err, code) {
-    if (code === 1) geoState.denied = true;
-    rapporterEtat({ gps: false });
+    if (code === 1) {
+      geoState.denied = true;
+      rapporterEtat({ gps: false });
+    }
     updateGpsBadge();
     updateLaunchState();
     updateZonePreview(state.last && state.last.config);
-    toast(err, 'danger', 5000);
+    const now = Date.now();
+    if (code === 1 || now - geoToastAt > 60000) {
+      geoToastAt = now;
+      toast(err, 'danger', 5000);
+    }
   }
 
   // Seuils alignés sur la réalité documentée : en extérieur le GPS d'un
@@ -1407,7 +1597,14 @@
     if (!code) { homeError('ENTRE LE CODE, OU APPUIE SUR CRÉER UNE PARTIE'); $('input-code').focus(); return; }
     if (code.length !== 5) { homeError('LE CODE FAIT 5 CARACTÈRES'); $('input-code').focus(); return; }
     homeError('');
+    pendingJoinName = name;
     socket.emit('joinRoom', { code, name, deviceId }, withTimeout($('btn-join'), '[ CONNEXION… ]', (res) => {
+      if (res && res.pending) {
+        // Reprise de place depuis un autre téléphone : l'hôte doit confirmer.
+        homeError('EN ATTENTE DE L’HÔTE — IL DOIT CONFIRMER QUE C’EST BIEN TOI');
+        $('home-error').classList.add('info');
+        return;
+      }
       if (!res || !res.ok) return homeError(voice(res && res.error, 'ERREUR'));
       state.code = res.code; state.playerId = res.playerId; state.name = name; state.joined = true;
       saveSession(); startGeo();
@@ -1561,6 +1758,7 @@
     const rs = (s && s.roster) || [];
     panel.classList.toggle('hidden', !s || !s.isHost || rs.length === 0);
     if (!s || !s.isHost) return;
+    if (!changed('ready', rs.map((p) => [p.name, p.connected, p.hasPos, p.ready]))) return;
     const ul = $('rp-list');
     ul.innerHTML = '';
     let prets = 0;
@@ -1690,19 +1888,27 @@
   $('btn-leave-lobby').onclick = () => confirmAction('QUITTER LA PARTIE', 'Tu vas libérer ta place. Les autres continuent sans toi.', leaveToHome);
 
   // --- Confirmation générique ---
-  let confirmCb = null;
-  function confirmAction(title, text, onYes) {
+  let confirmCb = null, confirmNoCb = null;
+  function confirmAction(title, text, onYes, onNo) {
+    // Une confirmation déjà ouverte (demande de reprise par ex.) vaut refus
+    // si une autre la remplace : on ne la laisse pas en suspens.
+    if (confirmNoCb) { const n = confirmNoCb; confirmNoCb = null; n(); }
     $('confirm-title').textContent = title;
     $('confirm-text').textContent = text;
     confirmCb = onYes;
+    confirmNoCb = onNo || null;
     openModal('modal-confirm');
   }
   $('confirm-yes').onclick = () => {
     closeModal($('modal-confirm'));
-    const cb = confirmCb; confirmCb = null;
+    const cb = confirmCb; confirmCb = null; confirmNoCb = null;
     if (cb) cb();
   };
-  $('confirm-no').onclick = () => { closeModal($('modal-confirm')); confirmCb = null; };
+  $('confirm-no').onclick = () => {
+    closeModal($('modal-confirm'));
+    const n = confirmNoCb; confirmCb = null; confirmNoCb = null;
+    if (n) n();
+  };
 
   // --- Jeu : actions ---
   $('btn-code').onclick = () => {
@@ -1899,18 +2105,66 @@
     if (panel.classList.contains('hidden')) return;
     const s = state.last;
     if (!s || !s.roster) return;
+    $('btn-host-end').classList.toggle('hidden', !(s.isHost && s.status === 'playing'));
+    // Reconstruit seulement au changement : la liste porte des boutons d'hôte
+    if (!changed('pp', [s.isHost, s.roster])) return;
     const list = $('pp-list');
     list.innerHTML = '';
     const sorted = [...s.roster].sort((a, b) => (a.role === b.role ? 0 : a.role === 'hider' ? -1 : 1));
     sorted.forEach((p) => {
       const li = document.createElement('li');
       if (!p.connected) li.classList.add('off');
+      const etat = !p.connected ? 'hors ligne' : (p.lost ? 'signal perdu' : '');
       li.innerHTML =
-        '<span class="pp-name">' + escapeHtml(p.name) + (p.isMe ? ' <span class="pp-me">(toi)</span>' : '') + '</span>' +
-        (p.connected ? '' : '<span class="pp-me">hors ligne</span>') +
+        '<span class="pp-name">' + escapeHtml(p.name) + (p.isMe ? ' <span class="pp-me">(toi)</span>' : '') +
+        (p.isHost ? ' <span class="pp-me">hôte</span>' : '') + '</span>' +
+        (etat ? '<span class="pp-me pp-warn">' + etat + '</span>' : '') +
         '<span class="pp-role ' + p.role + '">' + (p.role === 'hunter' ? 'CHASSEUR' : 'CACHÉ') + '</span>';
+      if (s.isHost && !p.isMe) li.appendChild(hostActions(p));
       list.appendChild(li);
     });
+  }
+
+  $('btn-host-end').onclick = () => confirmAction(
+    'TERMINER LA PARTIE',
+    'La partie s’arrête pour tout le monde. Victoire des cachés s’il en reste encore en jeu.',
+    () => socket.emit('host:end', {}, (r) => { if (!r || !r.ok) toast((r && r.error) || 'Impossible.', 'danger'); })
+  );
+
+  // ---------------------------------------------------------- OPTIONS
+  // Mémorisées sur l'appareil : on les règle une fois, pas à chaque partie.
+  const OPT_KEY = 'traque:options';
+  const options = (() => { try { return JSON.parse(localStorage.getItem(OPT_KEY)) || {}; } catch (_) { return {}; } })();
+  function saveOptions() { try { localStorage.setItem(OPT_KEY, JSON.stringify(options)); } catch (_) {} }
+  function applyOptions() {
+    document.body.classList.toggle('sun', !!options.sun);
+    $('opt-sun').textContent = 'MODE PLEIN SOLEIL : ' + (options.sun ? 'OUI' : 'NON');
+    $('opt-sun').setAttribute('aria-pressed', String(!!options.sun));
+    $('opt-voice').textContent = 'ANNONCES VOCALES : ' + (options.voice ? 'OUI' : 'NON');
+    $('opt-voice').setAttribute('aria-pressed', String(!!options.voice));
+  }
+  $('opt-sun').onclick = () => { options.sun = !options.sun; saveOptions(); applyOptions(); };
+  $('opt-voice').onclick = () => {
+    options.voice = !options.voice; saveOptions(); applyOptions();
+    // L'appui sert aussi de geste utilisateur : iOS ne parle qu'après un geste.
+    if (options.voice) dire('Annonces vocales activées.', true);
+  };
+  applyOptions();
+
+  // Annonces vocales : en courant, on n'a pas les yeux sur l'écran. Le son et
+  // la vibration disent QU'IL se passe quelque chose ; la voix dit QUOI.
+  // Une annonce remplace la précédente : un retard de dix secondes sur une
+  // alerte de zone serait pire que pas d'annonce du tout.
+  function dire(texte, force) {
+    if (!options.voice && !force) return;
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(texte);
+      u.lang = 'fr-FR'; u.rate = 1.12;
+      synth.speak(u);
+    } catch (_) {}
   }
 
   function leaveToHome() {
@@ -1948,6 +2202,8 @@
   }
 
   function resetToHome() {
+    for (const k in signatures) delete signatures[k];
+    state.wasHost = undefined;
     teardownGame();
     Sensors.stopWatch();
     safeMapReset();
@@ -1958,8 +2214,18 @@
     show('screen-home');
   }
 
-  // Recentrer la carte sur soi
-  $('btn-recenter').onclick = () => { if (state.selfPos) GameMap.recenter(state.selfPos); };
+  // Recentrage. Dès que le joueur touchait la carte, le cadrage automatique
+  // s'arrêtait pour TOUTE la partie, et le bouton ne savait que centrer une
+  // fois sur soi. Il alterne maintenant deux vues, et la première SUIT le
+  // joueur jusqu'à ce qu'il reprenne la main sur la carte :
+  //   1er appui : me suivre    ·    2e appui : voir toute la zone
+  $('btn-recenter').onclick = () => {
+    const mode = GameMap.cycleView(state.selfPos);
+    const btn = $('btn-recenter');
+    btn.textContent = mode === 'follow' ? '◎' : '⌖';
+    btn.setAttribute('aria-label', mode === 'follow' ? 'La carte te suit — appuie pour voir toute la zone' : 'Toute la zone — appuie pour te suivre');
+    toast(mode === 'follow' ? 'LA CARTE TE SUIT' : 'VUE DE TOUTE LA ZONE', '', 1400);
+  };
 
   // iOS/Safari : l'audio ne peut démarrer qu'après un geste utilisateur.
   // On déverrouille le contexte au premier toucher, sinon les alertes seraient muettes.
@@ -2113,10 +2379,20 @@
   if ('serviceWorker' in navigator) {
     let reloading = false;
     const hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading || !hadController) return; // pas de reload à la toute première prise de contrôle
+    // JAMAIS en pleine partie. Un déploiement pendant une soirée de jeu
+    // rechargeait tous les téléphones d'un coup : sur iPhone, son, vibration et
+    // boussole restaient muets jusqu'au prochain appui, la caméra du scanner se
+    // fermait, l'écran pouvait de nouveau se verrouiller. La nouvelle version
+    // attend donc la fin de la partie (écran de fin, salon ou accueil).
+    function rechargerQuandPossible() {
+      if (reloading) return;
+      if (state.inGame) { setTimeout(rechargerQuandPossible, 5000); return; }
       reloading = true;
       window.location.reload();
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return; // pas de reload à la toute première prise de contrôle
+      rechargerQuandPossible();
     });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')

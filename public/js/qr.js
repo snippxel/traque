@@ -68,6 +68,16 @@ window.QR = (function () {
   let sessionActive = false, looping = false;
   let tickFn = null;
   let detectCb = null;
+  // Numéro de session : si le scanner est fermé PENDANT qu'il s'ouvre (chargement
+  // de jsQR, fenêtre d'autorisation caméra), la suite de startScan arrivait
+  // après stopScan et rallumait la caméra — qui restait allumée en arrière-plan,
+  // invisible, jusqu'à la fin de la partie.
+  let session = 0;
+  // Analyse : 640 px de large et ~10 images/s suffisent largement pour un QR
+  // tenu à bout de bras. On analysait l'image caméra en PLEINE résolution à
+  // chaque image d'écran (~60/s) : le téléphone chauffait en trente secondes.
+  const SCAN_MAX_W = 640;
+  const SCAN_EVERY_MS = 100;
 
   // `validate` reçoit la donnée brute du QR et retourne la valeur à remonter,
   // ou null pour continuer à scanner. Par défaut : un token d'identité. C'est ce
@@ -76,37 +86,51 @@ window.QR = (function () {
   async function startScan(video, onDetect, onError, validate) {
     if (sessionActive) { resumeScan(); return; }
     sessionActive = true;
+    const moi = ++session;
+    const annule = () => moi !== session || !sessionActive;
     detectCb = onDetect;
     const check = validate || ((d) => (TOKEN_RE.test(d) ? d : null));
 
     const hasLib = await ensureLib();
+    if (annule()) return;
     if (!hasLib) {
       sessionActive = false;
       onError && onError('Module de scan indisponible (réseau). Reconnecte-toi puis réessaie.');
       return;
     }
 
+    let flux;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }, audio: false,
+      flux = await navigator.mediaDevices.getUserMedia({
+        // Une résolution modeste suffit et démarre plus vite que le maximum du capteur
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
       });
     } catch (e) {
+      if (annule()) return;
       sessionActive = false;
       onError && onError('Caméra inaccessible. Autorise l’accès caméra (HTTPS requis).');
       return;
     }
+    // Fermé pendant l'autorisation : on coupe la caméra qu'on vient d'obtenir.
+    if (annule()) { flux.getTracks().forEach((t) => t.stop()); return; }
+    stream = flux;
     video.srcObject = stream;
     video.setAttribute('playsinline', 'true');
     await video.play().catch(() => {});
+    if (annule()) return;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let dernier = 0;
 
-    tickFn = () => {
+    tickFn = (t) => {
       if (!looping) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+      if (t - dernier < SCAN_EVERY_MS) { rafId = requestAnimationFrame(tickFn); return; }
+      dernier = t;
+      if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+        const k = Math.min(1, SCAN_MAX_W / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * k);
+        canvas.height = Math.round(video.videoHeight * k);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
@@ -131,6 +155,7 @@ window.QR = (function () {
   }
 
   function stopScan() {
+    session++; // invalide un startScan encore en cours d'ouverture
     sessionActive = false;
     looping = false;
     if (rafId) cancelAnimationFrame(rafId);
