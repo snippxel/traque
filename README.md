@@ -15,7 +15,7 @@ ambre, monospace, balayage radar.
 - **Backend** : Node.js + Express + Socket.io. État de jeu **100 % en mémoire**
   (une partie = un objet en RAM, supprimé quand la salle se vide). Aucune base de données.
 - **Frontend** : HTML/CSS/JS **vanilla** (pas de framework, pas de build step).
-  Carte via **Leaflet.js** + tuiles **CartoDB Dark** (gratuit, sans clé API).
+  Carte via **Leaflet.js** + tuiles **OpenStreetMap** assombries par filtre CSS (gratuit, sans clé API).
 - **Hébergement** : Render.com (tier gratuit), déployé depuis un dépôt GitHub.
 
 Aucune dépendance de build : les libs front (Leaflet, jsQR, qrcode) sont chargées
@@ -134,11 +134,14 @@ message (visible dans les journaux, jamais notifié à l'auteur) et blocage d'un
 joueur. Le blocage est appliqué **à l'émission**, pas à l'affichage : un message
 bloqué n'atteint jamais l'appareil, historique de reconnexion compris.
 
-**Fond de carte** — le fond sombre vient des serveurs publics de CARTO, sans
-contrat. Au-delà de huit tuiles en échec, le client bascule seul sur
-OpenStreetMap (assombri par filtre CSS) : une panne de fournisseur ne doit pas
-ressembler à une panne de jeu. Définir `window.TRAQUE_TILES` remplace le
-fournisseur principal sans toucher au code.
+**Fond de carte** — OpenStreetMap, libre et sans clé, assombri par filtre CSS.
+Le fond sombre de CARTO a été abandonné en novembre 2026 : CARTO exige
+désormais une clé et renvoie, au lieu d’une erreur, une image grise « API KEY
+REQUIRED » — la bascule automatique ne la voyait donc pas, et la carte était
+vide. Pour un fond sombre natif (CARTO avec clé, Stadia, MapTiler…), définir
+`window.TRAQUE_TILES = { url, subdomains, maxZoom, attribution }` avant
+`map.js` : il devient le fond principal, avec repli automatique sur
+OpenStreetMap au-delà de huit tuiles en échec.
 
 **Mise en veille** — le service se ping lui-même entre 9 h et 1 h (heure de
 Paris), et à toute heure tant qu'une partie tourne. Rester chaud 24 h/24

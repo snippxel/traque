@@ -1,6 +1,6 @@
 'use strict';
 /*
- * map.js — rendu cartographique via Leaflet + tuiles CartoDB Dark (sans clé API).
+ * map.js — rendu cartographique via Leaflet + tuiles OpenStreetMap assombries (sans clé API).
  * Gère : marqueur du joueur, coéquipiers, signaux gris (dernières positions
  * révélées), révélations exactes temporaires, cercles de zone (actuelle + suivante).
  * Expose window.GameMap.
@@ -24,19 +24,21 @@ window.GameMap = (function () {
   function esc(s) { return (s || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 
   // --------------------------------------------------------- Fond de carte
-  // Le fond sombre ne nous appartient pas : il vient des serveurs publics de
-  // CARTO, sans contrat ni quota écrit. À dix joueurs personne ne le remarque ;
-  // le jour où le robinet se ferme, la carte devient un rectangle vide et la
-  // partie est injouable — alors que le serveur, lui, va parfaitement bien.
-  // Une panne de fournisseur ne doit pas ressembler à une panne de jeu : on
-  // bascule tout seul sur OpenStreetMap, libre et sans clé, assombri par
-  // filtre CSS pour rester lisible avec le reste de l'interface.
-  const FOND = (typeof window !== 'undefined' && window.TRAQUE_TILES) || {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    subdomains: 'abcd',
-    maxZoom: 20,
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-  };
+  // Le fond par défaut est OpenStreetMap, libre et sans clé, assombri par
+  // filtre CSS (.tuiles-secours) pour rester lisible avec l'interface.
+  //
+  // Avant, le fond venait des serveurs publics de CARTO (dark_all). Fin 2026,
+  // CARTO s'est mis à exiger une clé : chaque tuile répond 200 OK avec une
+  // image grise « API KEY REQUIRED ». Comme ce n'est pas une erreur HTTP, la
+  // bascule automatique ci-dessous ne se déclenchait jamais et la carte était
+  // vide en pleine partie. Leçon : un fournisseur gratuit peut cesser de
+  // fonctionner SANS échouer.
+  //
+  // Pour revenir à un fond sombre natif (CARTO avec clé, Stadia, MapTiler…),
+  // définir window.TRAQUE_TILES = { url, subdomains?, maxZoom?, attribution? }
+  // avant map.js : il devient le fond principal, avec bascule sur OSM en cas
+  // de rafale d'erreurs.
+  const FOND = (typeof window !== 'undefined' && window.TRAQUE_TILES) || null;
   const SECOURS = {
     url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     maxZoom: 19,
@@ -48,6 +50,8 @@ window.GameMap = (function () {
   let secoursActif = false;
 
   function poseFond(cible, principal) {
+    // Sans fournisseur principal configuré, OSM est le fond tout court.
+    if (!FOND) principal = false;
     const src = principal ? FOND : SECOURS;
     const couche = L.tileLayer(src.url, {
       subdomains: src.subdomains || 'abc',
